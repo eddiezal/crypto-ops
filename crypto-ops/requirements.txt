@@ -6,3 +6,5 @@ pytz
 tabulate
 python-dotenv>=1.0
 tenacity>=8.3
+Flask==3.0.3
+gunicorn==22.0.0
