@@ -1,0 +1,42 @@
+# API keys, secrets, dotenvs
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.json
+configs/policy.rebalancer.json
+configs/*.secret.json
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# SQLite DBs
+data/*.db
+data/*.sqlite
+
+# Generated trading plans
+plans/plan_*.json
+
+# Scratch, temporary notebooks/scripts
+scratch/
+*.ipynb_checkpoints
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
