@@ -1,0 +1,8 @@
+requests>=2.31
+pandas
+numpy
+python-dateutil
+pytz
+tabulate
+python-dotenv>=1.0
+tenacity>=8.3

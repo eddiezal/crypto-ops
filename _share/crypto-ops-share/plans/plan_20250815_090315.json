@@ -1,0 +1,136 @@
+{
+  "account": "trading",
+  "prices": {
+    "BTC-USD": 119226.725,
+    "ETH-USD": 4654.92,
+    "LINK-USD": 22.673,
+    "SOL-USD": 197.445
+  },
+  "balances": {
+    "BTC-USD": 0.39852261517389687,
+    "ETH-USD": 7.679339887682553,
+    "LINK-USD": 646.9776449999999,
+    "SOL-USD": 76.088704,
+    "USD": 109669.05436502576
+  },
+  "weights": {
+    "BTC-USD": 0.42065574713310905,
+    "ETH-USD": 0.3164727726812864,
+    "LINK-USD": 0.12986690884075475,
+    "SOL-USD": 0.13300457134484975
+  },
+  "targets": {
+    "BTC": 0.4343,
+    "ETH": 0.24870000000000003,
+    "SOL": 0.1674,
+    "LINK": 0.1495
+  },
+  "crypto_val": 112953.5173819553,
+  "actions": [
+    {
+      "symbol": "ETH-USD",
+      "side": "sell",
+      "px": 4654.92,
+      "px_eff": 4645.144668,
+      "qty": 1.6479000000000001,
+      "usd": -7654.7338983972,
+      "est_fee_bps": 6.0,
+      "est_slip_bps": 15.0
+    },
+    {
+      "symbol": "SOL-USD",
+      "side": "buy",
+      "px": 197.445,
+      "px_eff": 197.8596345,
+      "qty": 30.905,
+      "usd": 6114.8520042225,
+      "est_fee_bps": 6.0,
+      "est_slip_bps": 15.0,
+      "note": "cash_deploy"
+    },
+    {
+      "symbol": "LINK-USD",
+      "side": "buy",
+      "px": 22.673,
+      "px_eff": 22.720613299999997,
+      "qty": 171.87,
+      "usd": 3904.9918078709993,
+      "est_fee_bps": 6.0,
+      "est_slip_bps": 15.0,
+      "note": "cash_deploy"
+    },
+    {
+      "symbol": "SOL-USD",
+      "side": "buy",
+      "px": 197.445,
+      "px_eff": 197.8596345,
+      "qty": 19.635,
+      "usd": 3884.9739234075005,
+      "est_fee_bps": 6.0,
+      "est_slip_bps": 15.0
+    },
+    {
+      "symbol": "BTC-USD",
+      "side": "buy",
+      "px": 119226.725,
+      "px_eff": 119477.10112250001,
+      "qty": 0.02271,
+      "usd": 2713.3249664919754,
+      "est_fee_bps": 6.0,
+      "est_slip_bps": 15.0,
+      "note": "cash_deploy"
+    }
+  ],
+  "config": {
+    "band": 0.021778194489188163,
+    "min_trade_usd": 2000.0,
+    "move_fraction": 1.0,
+    "daily_turnover_cap_usd": 25000.0,
+    "per_asset_cap_usd": {
+      "SOL-USD": 10000.0,
+      "LINK-USD": 10000.0
+    },
+    "taker_fee_bps": 6.0,
+    "slippage_bps": 15.0,
+    "qty_step": {
+      "BTC-USD": 1e-05,
+      "ETH-USD": 0.0001,
+      "SOL-USD": 0.001,
+      "LINK-USD": 0.01
+    },
+    "max_trade_count": 6,
+    "ensure_cash": true,
+    "momentum": {
+      "enabled": true,
+      "lookback_days": 60,
+      "tilt_max_pct": 0.1,
+      "tilt_strength": 1.3
+    },
+    "satellite_gate": {
+      "max_weight_pct": {
+        "LINK": 0.2,
+        "SOL": 0.2
+      },
+      "symbols": [
+        "SOL",
+        "LINK"
+      ],
+      "lookback_days": 60,
+      "enabled": true,
+      "threshold_ret": 0.0
+    },
+    "band_dynamic": {
+      "target_ann_vol": 0.4,
+      "enabled": true,
+      "max": 0.07,
+      "lookback_days": 30,
+      "base": 0.03,
+      "min": 0.02
+    },
+    "cash": {
+      "auto_deploy_usd_per_day": 15000,
+      "pro_rata_underweights": true,
+      "floor_usd": 30000
+    }
+  }
+}

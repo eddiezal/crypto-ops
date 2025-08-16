@@ -1,0 +1,217 @@
+import os, json, argparse, math, datetime
+from pathlib import Path
+from libs.db import get_conn
+from libs.logger import get_logger
+
+log = get_logger("rebalancer")
+BASE = Path(__file__).resolve().parents[2]
+CFG_PATH = BASE / "configs" / "policy.rebalancer.json"
+
+def load_cfg():
+    try:
+        with open(CFG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {
+            "targets_trading": {"BTC": 0.40, "ETH": 0.30, "SOL": 0.15, "LINK": 0.15},
+            "bands_pct": 0.05,
+            "min_trade_usd": 1000,
+            "move_fraction": 1.0
+        }
+
+def latest_price(conn, instr):
+    r = conn.execute("SELECT px FROM price WHERE instrument_id=? ORDER BY ts DESC LIMIT 1",(instr,)).fetchone()
+    return r["px"] if r else None
+
+def latest_qty(conn, account, instr):
+    r = conn.execute("SELECT qty FROM balance_snapshot WHERE account_id=? AND instrument_id=? ORDER BY ts DESC LIMIT 1",(account, instr)).fetchone()
+    return r["qty"] if r else 0.0
+
+def round_step(qty, step):
+    if not step or step <= 0: return qty
+    return math.floor(qty / step) * step  # round down
+
+def compute_actions(account="trading", override_prices=None):
+    cfg = load_cfg()
+    targets = cfg.get("targets_trading", {})
+    band = float(cfg.get("bands_pct", 0.05))
+    min_usd = float(cfg.get("min_trade_usd", 1000))
+    move_fraction = float(cfg.get("move_fraction", 0.5))
+    daily_cap = float(cfg.get("daily_turnover_cap_usd", 1e15))
+    per_asset_caps = { (k.upper()+"-USD"): float(v) for k, v in cfg.get("per_asset_cap_usd", {}).items() }
+    fee_bps = float(cfg.get("taker_fee_bps", 0.0))
+    slip_bps = float(cfg.get("slippage_bps", 0.0))
+    qty_step = { (k.upper()+"-USD"): float(v) for k, v in cfg.get("qty_step", {}).items() }
+    max_trade_count = int(cfg.get("max_trade_count", 99))
+    ensure_cash = bool(cfg.get("ensure_cash", True))
+
+    symbols = sorted([f"{k.upper()}-USD" for k in targets.keys() if k.upper() != "USD"])
+    conn = get_conn()
+
+    # Gather prices/balances
+    px = {}; qty = {}
+    for s in symbols:
+        px[s] = latest_price(conn, s)
+        qty[s] = latest_qty(conn, account, s)
+    usd = latest_qty(conn, account, "USD")
+
+    # Apply overrides (what-if)
+    if override_prices:
+        for k,v in override_prices.items():
+            if k in px: px[k] = float(v)
+
+    missing = [s for s in symbols if not px[s]]
+    if missing:
+        return {"error": f"Missing prices for: {', '.join(missing)}"}
+
+    crypto_val = sum((qty[s] or 0.0) * px[s] for s in symbols)
+    if crypto_val <= 0:
+        return {"error": "No crypto balances; set balances first."}
+
+    # ===== Momentum overlay: tilt targets based on lookback returns =====
+    mom = cfg.get("momentum", {})
+    if mom.get("enabled", False):
+        look = int(mom.get("lookback_days", 60))
+        tilt_max = float(mom.get("tilt_max_pct", 0.05))
+        strength = float(mom.get("tilt_strength", 1.0))
+        cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=look)).strftime("%Y-%m-%d 23:59:59")
+        px_past = {}
+        for s in symbols:
+            r = conn.execute("SELECT px FROM price WHERE instrument_id=? AND ts<=? ORDER BY ts DESC LIMIT 1",(s, cutoff)).fetchone()
+            px_past[s] = r["px"] if r else None
+        # compute tilts
+        tilted = {}
+        for s in symbols:
+            base = float(targets[s[:-4]])
+            past = px_past.get(s); now = px.get(s)
+            if past and now and past > 0:
+                ret = (now/past) - 1.0
+                tilt = max(-tilt_max, min(tilt_max, ret * strength))
+                tilted[s] = max(0.0, base * (1.0 + tilt))
+            else:
+                tilted[s] = base
+        # renormalize to sum of base targets (preserve base total)
+        base_sum = sum(float(targets[k[:-4]]) for k in symbols)
+        t_sum = sum(tilted.values())
+        if t_sum > 0:
+            for s in symbols:
+                targets[s[:-4]] = tilted[s] * (base_sum / t_sum)
+
+    # Weights w.r.t. current crypto value
+    weights = { s: (qty[s]*px[s]/crypto_val) for s in symbols }
+
+    # ===== Raw actions from drift =====
+    actions = []
+    for s in symbols:
+        tgt = float(targets[s[:-4]])
+        drift = weights[s] - tgt
+        if abs(drift) > band:
+            usd_move_drift = - drift * crypto_val * move_fraction  # + = buy, - = sell
+            side = "buy" if usd_move_drift > 0 else "sell"
+            # exec price with fees+slippage (unfavorable)
+            exec_adj = (fee_bps + slip_bps) / 10000.0
+            px_eff = px[s] * (1 + exec_adj if side=="buy" else 1 - exec_adj)
+            # qty at exec px (rounded down to step)
+            q_raw = abs(usd_move_drift) / px_eff if px_eff else 0.0
+            q_rd = round_step(q_raw, qty_step.get(s, 0.0))
+            usd_eff = (q_rd * px_eff) if side=="buy" else - (q_rd * px_eff)
+            if q_rd > 0 and abs(usd_eff) >= min_usd:
+                actions.append({
+                    "symbol": s, "side": side,
+                    "px": px[s], "px_eff": px_eff,
+                    "qty": float(q_rd), "usd": float(usd_eff),
+                    "est_fee_bps": fee_bps, "est_slip_bps": slip_bps
+                })
+
+    # Per-asset caps
+    for a in actions:
+        cap = per_asset_caps.get(a["symbol"])
+        if cap is not None and abs(a["usd"]) > cap:
+            scale = cap / abs(a["usd"])
+            a["qty"] = float(a["qty"] * scale)
+            a["usd"] = float(a["usd"] * scale)
+    actions = [a for a in actions if abs(a["usd"]) >= min_usd]
+
+    # Ensure cash (buys <= USD + sells)
+    if ensure_cash and actions:
+        buys  = [a for a in actions if a["usd"] > 0]
+        sells = [a for a in actions if a["usd"] < 0]
+        available = usd + sum(-a["usd"] for a in sells)
+        required  = sum(a["usd"] for a in buys)
+        if required > available and required > 0:
+            scale = available / required if available > 0 else 0.0
+            for a in buys:
+                a["qty"] = float(a["qty"] * scale)
+                a["usd"] = float(a["usd"] * scale)
+            actions = [a for a in actions if abs(a["usd"]) >= min_usd]
+
+    # Daily turnover cap
+    total_turnover = sum(abs(a["usd"]) for a in actions)
+    if total_turnover > daily_cap and total_turnover > 0:
+        scale = daily_cap / total_turnover
+        for a in actions:
+            a["qty"] = float(a["qty"] * scale)
+            a["usd"] = float(a["usd"] * scale)
+        actions = [a for a in actions if abs(a["usd"]) >= min_usd]
+
+    # Limit legs
+    actions = sorted(actions, key=lambda x: abs(x["usd"]), reverse=True)[:max_trade_count]
+
+    return {
+        "account": account,
+        "prices": px,
+        "balances": { **{s: qty[s] for s in symbols}, "USD": usd },
+        "weights": weights,
+        "targets": targets,
+        "crypto_val": crypto_val,
+        "actions": actions,
+        "config": {
+            "band": band,
+            "min_trade_usd": min_usd,
+            "move_fraction": move_fraction,
+            "daily_turnover_cap_usd": daily_cap,
+            "per_asset_cap_usd": per_asset_caps,
+            "taker_fee_bps": fee_bps,
+            "slippage_bps": slip_bps,
+            "qty_step": qty_step,
+            "max_trade_count": max_trade_count,
+            "ensure_cash": ensure_cash,
+            "momentum": mom
+        }
+    }
+
+def print_human(plan):
+    if "error" in plan:
+        print(plan["error"]); return
+    symbols = sorted([s for s in plan["prices"].keys()])
+    print("=== Rebalancer Report (multi-asset) ===")
+    print("Prices:", ", ".join([f"{s}=${plan['prices'][s]:,.2f}" for s in symbols]))
+    bals = ", ".join([f"{s}={plan['balances'].get(s,0.0):.6f}" for s in symbols]) + f" USD=${plan['balances'].get('USD',0.0):,.2f}"
+    print("Balances:", bals)
+    for s in symbols:
+        tgt = plan["targets"][s[:-4]]
+        print(f"{s}: weight {plan['weights'][s]:.2%} (tgt {tgt:.0%})")
+    if plan["actions"]:
+        print("-- Proposed trades (dry-run) --")
+        for a in plan["actions"]:
+            print(f"{a['side'].upper()} {a['qty']:.6f} {a['symbol']} (~${abs(a['usd']):,.2f}) at ${a['px_eff']:,.2f} (px eff)")
+    else:
+        print("Within bands; No-Op.")
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--json", action="store_true", help="emit JSON plan to stdout")
+    ap.add_argument("--pair", action="append", help="(what-if) SYMBOL=price; repeatable")
+    args = ap.parse_args()
+    overrides = {}
+    for kv in (args.pair or []):
+        if "=" in kv:
+            k,v = kv.split("=",1)
+            overrides[k.strip()] = float(v)
+    plan = compute_actions("trading", override_prices=overrides or None)
+    if args.json:
+        print(json.dumps(plan, indent=2))
+    else:
+        print_human(plan)
+
+

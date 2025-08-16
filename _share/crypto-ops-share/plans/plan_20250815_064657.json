@@ -1,0 +1,56 @@
+{
+  "account": "trading",
+  "prices": {
+    "BTC-USD": 118987.365,
+    "ETH-USD": 4631.175,
+    "LINK-USD": 22.7765,
+    "SOL-USD": 197.055
+  },
+  "balances": {
+    "BTC-USD": 0.39852261517389687,
+    "ETH-USD": 7.679339887682553,
+    "LINK-USD": 646.9776449999999,
+    "SOL-USD": 76.088704,
+    "USD": 109669.05436502576
+  },
+  "weights": {
+    "BTC-USD": 0.42070681270548216,
+    "ETH-USD": 0.31553010952911154,
+    "LINK-USD": 0.13073804577046644,
+    "SOL-USD": 0.13302503199493979
+  },
+  "targets": {
+    "BTC": 0.4,
+    "ETH": 0.3,
+    "SOL": 0.15,
+    "LINK": 0.15
+  },
+  "crypto_val": 112713.06867485176,
+  "actions": [],
+  "config": {
+    "band": 0.035,
+    "min_trade_usd": 2000.0,
+    "move_fraction": 1.0,
+    "daily_turnover_cap_usd": 25000.0,
+    "per_asset_cap_usd": {
+      "SOL-USD": 10000.0,
+      "LINK-USD": 10000.0
+    },
+    "taker_fee_bps": 6.0,
+    "slippage_bps": 15.0,
+    "qty_step": {
+      "BTC-USD": 1e-05,
+      "ETH-USD": 0.0001,
+      "SOL-USD": 0.001,
+      "LINK-USD": 0.01
+    },
+    "max_trade_count": 6,
+    "ensure_cash": true,
+    "momentum": {
+      "enabled": true,
+      "lookback_days": 60,
+      "tilt_max_pct": 0.05,
+      "tilt_strength": 1.0
+    }
+  }
+}

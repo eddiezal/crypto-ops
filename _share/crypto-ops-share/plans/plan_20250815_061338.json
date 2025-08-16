@@ -1,0 +1,55 @@
+{
+  "account": "trading",
+  "prices": {
+    "BTC-USD": 118987.365,
+    "ETH-USD": 4631.175,
+    "LINK-USD": 22.7765,
+    "SOL-USD": 197.055
+  },
+  "balances": {
+    "BTC-USD": 0.48384600000000005,
+    "ETH-USD": 6.747052999999999,
+    "LINK-USD": 646.9776449999999,
+    "SOL-USD": 76.088704,
+    "USD": 103834.23335875
+  },
+  "weights": {
+    "BTC-USD": 0.4856396917789692,
+    "ETH-USD": 0.2635794130230679,
+    "LINK-USD": 0.12430323619407634,
+    "SOL-USD": 0.12647765900388652
+  },
+  "targets": {
+    "BTC": 0.4,
+    "ETH": 0.3,
+    "SOL": 0.15,
+    "LINK": 0.15
+  },
+  "crypto_val": 118547.8896811275,
+  "actions": [
+    {
+      "symbol": "BTC-USD",
+      "usd": -10152.404733339,
+      "px": 118987.365,
+      "qty": 0.08532338482610317,
+      "side": "sell"
+    },
+    {
+      "symbol": "ETH-USD",
+      "usd": 4317.583727063252,
+      "px": 4631.175,
+      "qty": 0.932286887682554,
+      "side": "buy"
+    }
+  ],
+  "config": {
+    "band": 0.035,
+    "min_trade_usd": 2000.0,
+    "move_fraction": 1.0,
+    "daily_turnover_cap_usd": 25000.0,
+    "per_asset_cap_usd": {
+      "SOL-USD": 10000.0,
+      "LINK-USD": 10000.0
+    }
+  }
+}
