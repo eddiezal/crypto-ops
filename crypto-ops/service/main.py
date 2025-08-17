@@ -1,4 +1,4 @@
-import os, time, hashlib, subprocess, uuid, logging
+import os, time, hashlib, subprocess, uuid
 from typing import Optional, List, Dict
 from pathlib import Path
 
@@ -104,7 +104,6 @@ def apply_paper(
     if expected and x_app_key != expected:
         raise HTTPException(status_code=401, detail="missing/invalid app key")
 
-    # Compute a plan (same code path as /plan)
     plan = compute_actions("trading")
     actions = plan.get("actions", [])
     prices  = plan.get("prices", {})
@@ -116,16 +115,18 @@ def apply_paper(
     trades_path = f"trades/{ts_str[:8]}.jsonl"
     plan_path   = f"plans/plan_{ts_str}_{run_id}.json"
 
-    # On dry-run we *tolerate* any GCS read failures and fall back to the plan's balances.
+    # Tolerant GCS read for dry-run:
     balances_before = None
     gcs_read_ok = True
     try:
-        # If your read_json has a 'default' param this returns None if missing; if not, the except catches it.
-        balances_before = read_json(bal_path, default=None)  # type: ignore
+        try:
+            balances_before = read_json(bal_path, default=None)  # if helper supports default=
+        except TypeError:
+            # helper without 'default=' signature
+            balances_before = read_json(bal_path)
     except Exception:
         gcs_read_ok = False
         if commit == 1:
-            # On commit we do want to surface real errors
             raise
 
     if balances_before is None:
@@ -149,11 +150,8 @@ def apply_paper(
 
     if commit:
         try:
-            # Always archive the plan for audit
             write_json(plan_path, plan)
-            # Persist new balances
             write_json(bal_path, balances_after)
-            # Append trades only if there are actions
             if actions:
                 meta = {
                     "ts": ts,
@@ -165,7 +163,6 @@ def apply_paper(
                 for a in actions:
                     rec = dict(meta); rec.update(a)
                     append_jsonl(trades_path, rec)
-
             summary["writes"] = {"balances": bal_path, "trades": trades_path, "plan": plan_path}
         except Exception as e:
             msg = f"GCS write failed: {e.__class__.__name__}: {e}"
