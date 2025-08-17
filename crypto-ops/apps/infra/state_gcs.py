@@ -1,12 +1,13 @@
-# apps/infra/state_gcs.py
 import os, json
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
 
 _BUCKET = os.getenv("STATE_BUCKET")
+_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
 
 def _client():
-    return storage.Client()
+    # Explicit project helps avoid ADC/project discovery quirks
+    return storage.Client(project=_PROJECT) if _PROJECT else storage.Client()
 
 def _bucket():
     if not _BUCKET:
@@ -47,3 +48,19 @@ def append_jsonl(path: str, obj):
         write_text(path, line, content_type="text/plain")
     else:
         write_text(path, cur + line, content_type="text/plain")
+
+def selftest(prefix="state"):
+    """
+    Write, read, delete a tiny blob under prefix to validate perms.
+    Returns (ok: bool, detail: str)
+    """
+    b = _bucket()
+    p = f"{prefix}/selftest.txt"
+    try:
+        blob = b.blob(p)
+        blob.upload_from_string("ok", content_type="text/plain")
+        t = blob.download_as_text()
+        blob.delete()
+        return True, f"wrote/read/deleted gs://{_BUCKET}/{p} -> '{t}'"
+    except Exception as e:
+        return False, f"{e.__class__.__name__}: {e}"
