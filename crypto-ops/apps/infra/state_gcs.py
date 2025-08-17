@@ -6,7 +6,6 @@ _BUCKET = os.getenv("STATE_BUCKET")
 _PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
 
 def _client():
-    # Explicit project helps avoid ADC/project discovery quirks
     return storage.Client(project=_PROJECT) if _PROJECT else storage.Client()
 
 def _bucket():
@@ -34,26 +33,21 @@ def read_json(path: str, default=None):
 def write_text(path: str, text: str, content_type="application/json"):
     b = _bucket()
     blob = b.blob(path)
+    # Important: pass content_type into upload_from_string to align header+metadata
     blob.cache_control = "no-store"
-    blob.content_type = content_type
-    blob.upload_from_string(text)
+    blob.upload_from_string(text, content_type=content_type)
 
 def write_json(path: str, obj):
-    write_text(path, json.dumps(obj, separators=(",",":")))
+    write_text(path, json.dumps(obj, separators=(",",":")), content_type="application/json")
 
 def append_jsonl(path: str, obj):
+    # JSON Lines; use a clear type to avoid ambiguity
     line = json.dumps(obj, separators=(",",":")) + "\n"
     cur = read_text(path)
-    if cur is None:
-        write_text(path, line, content_type="text/plain")
-    else:
-        write_text(path, cur + line, content_type="text/plain")
+    payload = line if cur is None else (cur + line)
+    write_text(path, payload, content_type="application/x-ndjson")
 
 def selftest(prefix="state"):
-    """
-    Write, read, delete a tiny blob under prefix to validate perms.
-    Returns (ok: bool, detail: str)
-    """
     b = _bucket()
     p = f"{prefix}/selftest.txt"
     try:
