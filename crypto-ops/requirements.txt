@@ -1,3 +1,16 @@
+# FastAPI service
 fastapi>=0.110
 uvicorn[standard]>=0.30
+
+# HTTP
 requests>=2.31
+
+# Optional: if any CLI utilities need them later, uncomment as needed
+# numpy>=1.26
+# pandas>=2.2
+# python-dateutil>=2.8.2
+# pytz>=2024.1
+# tabulate>=0.9
+# tenacity>=8.2
+# python-dotenv>=1.0
+google-cloud-storage>=2.16
