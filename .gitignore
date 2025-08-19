@@ -32,3 +32,4 @@ logs/
 # Env
 .env
 .env.*
+_share/crypto-ops-share/_MANIFEST.txt
