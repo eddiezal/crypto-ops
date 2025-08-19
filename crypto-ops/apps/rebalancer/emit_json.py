@@ -1,5 +1,6 @@
 import sys, json, argparse
 from apps.rebalancer.main import compute_actions
+from apps.infra.versioning import version_info
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -13,5 +14,6 @@ if __name__ == "__main__":
             overrides[k.strip()] = float(v)
 
     plan = compute_actions("trading", override_prices=overrides or None)
-    # Always emit JSON (even on errors)
+    if isinstance(plan, dict):
+        plan.setdefault("version", version_info())
     print(json.dumps(plan, indent=2))

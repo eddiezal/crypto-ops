@@ -1,0 +1,17 @@
+{
+  "autodetect": false,
+  "sourceFormat": "NEWLINE_DELIMITED_JSON",
+  "sourceUris": ["gs://cryptoops-state-cryptoops-sand-eddie/snapshots/daily.jsonl"],
+  "schema": {
+    "fields": [
+      {"name":"ts","type":"INT64"},
+      {"name":"nav_before","type":"FLOAT64"},
+      {"name":"nav","type":"FLOAT64"},
+      {"name":"turnover_usd","type":"FLOAT64"},
+      {"name":"actions_count","type":"INT64"},
+      {"name":"source","type":"STRING"},
+      {"name":"revision","type":"STRING"},
+      {"name":"commit","type":"BOOL"}
+    ]
+  }
+}

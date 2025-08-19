@@ -1,1 +1,50 @@
-# paste contents here
+# API keys, env, secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+configs/policy.rebalancer.json
+configs/*.secret.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Build/dist
+build/
+dist/
+*.egg-info/
+
+# SQLite / local data
+data/*.db
+data/*.sqlite
+
+# Generated trading plans
+plans/plan_*.json
+
+# Scratch / notebooks
+scratch/
+*.ipynb_checkpoints
+
+# Logs
+*.log
+logs/
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# Archives / backups
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+*.bak*

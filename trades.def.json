@@ -1,0 +1,18 @@
+{
+  "autodetect": false,
+  "sourceFormat": "NEWLINE_DELIMITED_JSON",
+  "sourceUris": ["gs://cryptoops-state-cryptoops-sand-eddie/trades/*.jsonl"],
+  "schema": {
+    "fields": [
+      {"name":"ts","type":"INT64"},
+      {"name":"symbol","type":"STRING"},
+      {"name":"side","type":"STRING"},
+      {"name":"usd","type":"FLOAT64"},
+      {"name":"qty","type":"FLOAT64"},
+      {"name":"run_id","type":"STRING"},
+      {"name":"revision","type":"STRING"},
+      {"name":"code_commit","type":"STRING"},
+      {"name":"plan_path","type":"STRING"}
+    ]
+  }
+}

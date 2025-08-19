@@ -1,15 +1,19 @@
-# CryptoOps
+@'
+# CryptoOps — Windows Ops Quickstart
 
-CryptoOps is a quantitative crypto trading framework designed for:
-- Multi-asset rebalancing (BTC, ETH, SOL, LINK by default)
-- Momentum tilts & volatility-aware banding
-- Configurable profiles (`Defensive`, `Balanced`, `Aggressive`)
-- Integration with Coinbase API (paper or live)
+## Prereqs
+- Google Cloud CLI (`gcloud`, `bq`)
+- PowerShell 7+
+- Project set: `gcloud config set project <PROJECT_ID>`
 
-## Getting Started
-
-### 1. Setup
+## One-time setup
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+Set-Location F:\CryptoOps\crypto-ops
+. .\win\ops.ps1     # dot-source per shell
+
+Deploy-CryptoOps                   # build & deploy Cloud Run
+Prices-Append -Commit -Refresh    # append prices & refresh service DB
+Create-SchedulerJobs              # price-append-5m, apply-paper-15m, snapshot-daily
+New-BqExternalTables; New-BqViews # BigQuery external tables + views
+Invoke-BqTradesLast20
+Invoke-BqSnapshotsLast50

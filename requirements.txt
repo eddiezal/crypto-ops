@@ -1,2 +1,3 @@
-# crypto-ops base runtime
-# Currently stdlib-only; this file is intentionally empty.
+fastapi>=0.110
+uvicorn[standard]>=0.30
+requests>=2.31
