@@ -1,45 +1,25 @@
-# API keys, env, secrets
-.env
-.env.*
-*.key
-*.pem
-*.p12
-configs/policy.rebalancer.json
-configs/*.secret.json
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environments
+# Virtual envs
 .venv/
 venv/
 ENV/
 
-# Build/dist
-build/
-dist/
-*.egg-info/
-
-# SQLite / local data
+# Local data / DBs
 data/*.db
 data/*.sqlite
+crypto-ops/data/*.db
 
-# Generated trading plans
-plans/plan_*.json
-
-# Scratch / notebooks
-scratch/
-*.ipynb_checkpoints
+# Plans / generated artifacts
+crypto-ops/plans/
+plans/
 
 # Logs
 *.log
 logs/
-
-# Windows junk
-Thumbs.db
-Desktop.ini
 
 # Archives / backups
 *.zip
@@ -48,3 +28,7 @@ Desktop.ini
 *.7z
 *.rar
 *.bak*
+
+# Env
+.env
+.env.*
