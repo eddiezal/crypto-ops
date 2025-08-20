@@ -1,27 +1,52 @@
-# Python
+# Byte-compiled / cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.egg-info/
-.eggs/
-build/
-dist/
-.cache/
-.coverage
 .pytest_cache/
 .mypy_cache/
+*.egg-info/
+.eggs/
+.cache/
+.coverage
+
+# Virtualenvs
 .venv/
 venv/
+
+# Envs / secrets (keep .env.example)
 .env
 .env.*
+!.env.example
+*.key
+*.pem
+*.local.json
+*.bqschema
+
+# Databases / artifacts
+*.db
+*.sqlite
+data/
+share/
+plans/*.json
+scratch/
+
 # Editors / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-# Data / Secrets
-*.key
-*.pem
-*.local.json
-*.bqschema
+
+# Node (just in case)
+node_modules/
+npm-debug.log*
+yarn-*.log*
+
+# Backups / temp
+*.bak*
+*.broken_*
+*.working_*
+
+# Build / dist
+build/
+dist/
