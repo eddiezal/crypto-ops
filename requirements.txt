@@ -1,3 +1,1 @@
-fastapi>=0.110
-uvicorn[standard]>=0.30
-requests>=2.31
+<<<<<<< HEAD=======>>>>>>> 65f74fd62f33391dca01d23ee19867634c9a0137ccxtfastapifastapi>=0.110google-cloud-bigqueryhttpxpandaspydantic>=2python-dotenvrequests>=2.31tenacityuvicorn[standard]uvicorn[standard]>=0.30

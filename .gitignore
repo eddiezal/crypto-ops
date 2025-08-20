@@ -1,36 +1,52 @@
-# Python
+# Byte-compiled / cache
 __pycache__/
 *.py[cod]
-*$py.class
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.eggs/
+.cache/
+.coverage
 
-# Virtual envs
+# Virtualenvs
 .venv/
 venv/
-ENV/
 
-# Local data / DBs
-data/*.db
-data/*.sqlite
-crypto-ops/data/*.db
-
-# Plans / generated artifacts
-crypto-ops/plans/
-plans/
-
-# Logs
-*.log
-logs/
-
-# Archives / backups
-*.zip
-*.tar
-*.tar.gz
-*.7z
-*.rar
-*.bak*
-
-# Env
+# Envs / secrets (keep .env.example)
 .env
 .env.*
-_share/crypto-ops-share/_MANIFEST.txt
-_share/crypto-ops-share/_MANIFEST.txt
+!.env.example
+*.key
+*.pem
+*.local.json
+*.bqschema
+
+# Databases / artifacts
+*.db
+*.sqlite
+data/
+share/
+plans/*.json
+scratch/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Node (just in case)
+node_modules/
+npm-debug.log*
+yarn-*.log*
+
+# Backups / temp
+*.bak*
+*.broken_*
+*.working_*
+
+# Build / dist
+build/
+dist/
