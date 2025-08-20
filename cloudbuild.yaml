@@ -1,0 +1,46 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _SERVICE: cryptoops-planner
+  _REGION: us-central1
+  _REPO: cryptoops
+  _VPC_CONNECTOR: cryptoops-conn
+
+steps:
+# Ensure Artifact Registry repo exists
+- name: gcr.io/cloud-builders/gcloud
+  id: 'Ensure AR repo'
+  entrypoint: bash
+  args:
+    - -lc
+    - |
+      gcloud artifacts repositories describe ${_REPO} --location=${_REGION} || \
+      gcloud artifacts repositories create ${_REPO} --repository-format=docker --location=${_REGION}
+
+# Build Docker image from ./crypto-ops
+- name: gcr.io/cloud-builders/docker
+  id: 'Build image'
+  args:
+    [ 'build',
+      '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/cryptoops:${SHORT_SHA}',
+      './crypto-ops' ]
+
+# Push image
+- name: gcr.io/cloud-builders/docker
+  id: 'Push image'
+  args: [ 'push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/cryptoops:${SHORT_SHA}' ]
+
+# Deploy to Cloud Run
+- name: gcr.io/cloud-builders/gcloud
+  id: 'Deploy Cloud Run'
+  args:
+    [ 'run','deploy','${_SERVICE}',
+      '--image','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/cryptoops:${SHORT_SHA}',
+      '--region','${_REGION}',
+      '--allow-unauthenticated',
+      '--vpc-connector','${_VPC_CONNECTOR}',
+      '--vpc-egress','all-traffic' ]
+
+images:
+- '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/cryptoops:${SHORT_SHA}'

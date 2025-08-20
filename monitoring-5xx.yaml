@@ -1,0 +1,33 @@
+displayName: "Cloud Run 5xx error rate > 5% (cryptoops-planner)"
+enabled: true
+combiner: "OR"
+documentation:
+  content: "Fires when 5xx error rate > 5 minutes > 5% on **cryptoops-planner** in project 'cryptoops-sand-eddie'."
+  mimeType: "text/markdown"
+notificationChannels:
+- "projects/cryptoops-sand-eddie/notificationChannels/10976207346076571760"
+conditions:
+- displayName: "5xx ratio > 5% (5 min)"
+  conditionThreshold:
+    # numerator: 5xx count
+    filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cryptoops-planner" AND metric.type="run.googleapis.com/request_count" AND metric.labels.response_code_class="5xx"'
+    aggregations:
+    - alignmentPeriod: "60s"
+      perSeriesAligner: "ALIGN_DELTA"
+      crossSeriesReducer: "REDUCE_SUM"
+    # denominator: all requests
+    denominatorFilter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cryptoops-planner" AND metric.type="run.googleapis.com/request_count"'
+    denominatorAggregations:
+    - alignmentPeriod: "60s"
+      perSeriesAligner: "ALIGN_DELTA"
+      crossSeriesReducer: "REDUCE_SUM"
+    comparison: "COMPARISON_GT"
+    thresholdValue: 0.05
+    duration: "300s"
+    trigger:
+      count: 1
+alertStrategy:
+  # NOTE: notificationRateLimit is NOT allowed for metric-based policies; omitted by design.
+  autoClose: "28800s"  # 8h
+userLabels:
+  service: "cryptoops-planner"

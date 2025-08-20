@@ -1,0 +1,4 @@
+targets_trading:
+  BTC: 0.50
+  ETH: 0.50
+bands_pct: 0.05

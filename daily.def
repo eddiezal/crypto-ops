@@ -1,0 +1,10 @@
+{
+  "autodetect": true,
+  "jsonOptions": {
+    "encoding": "UTF-8"
+  },
+  "sourceFormat": "NEWLINE_DELIMITED_JSON",
+  "sourceUris": [
+    "gs://cryptoops-state-cryptoops-sand-eddie/snapshots/daily.jsonl"
+  ]
+}

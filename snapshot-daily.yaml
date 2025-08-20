@@ -1,0 +1,9 @@
+name: projects/cryptoops-sand-eddie/locations/us-central1/jobs/snapshot-daily
+schedule: "0 0 * * *"
+timeZone: "Etc/UTC"
+httpTarget:
+  uri: "https://cryptoops-planner-zfifvunoha-uc.a.run.app/snapshot_now?commit=1"
+  httpMethod: GET
+  oidcToken:
+    serviceAccountEmail: "cryptoops-run@cryptoops-sand-eddie.iam.gserviceaccount.com"
+    audience: "https://cryptoops-planner-zfifvunoha-uc.a.run.app"

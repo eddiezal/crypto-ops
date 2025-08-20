@@ -1,0 +1,9 @@
+name: projects/cryptoops-sand-eddie/locations/us-central1/jobs/apply-paper-15m
+schedule: "*/15 * * * *"
+timeZone: "Etc/UTC"
+httpTarget:
+  uri: "https://cryptoops-planner-zfifvunoha-uc.a.run.app/apply_paper?refresh=1&commit=1"
+  httpMethod: GET
+  oidcToken:
+    serviceAccountEmail: "cryptoops-run@cryptoops-sand-eddie.iam.gserviceaccount.com"
+    audience: "https://cryptoops-planner-zfifvunoha-uc.a.run.app"

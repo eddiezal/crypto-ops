@@ -1,0 +1,50 @@
+{
+  "displayName": "Cloud Run 5xx error rate > 5% (cryptoops-planner)",
+  "enabled": true,
+  "combiner": "OR",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Fires when 5xx error rate > 5 minutes on **cryptoops-planner** in project $PROJECT."
+  },
+  "notificationChannels": [
+    "projects/cryptoops-sand-eddie/notificationChannels/10976207346076571760"
+  ],
+  "conditions": [
+    {
+      "conditionThreshold": {
+        "thresholdValue": 0.05,
+        "denominatorFilter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cryptoops-planner\" AND metric.type=\"run.googleapis.com/request_count\"",
+        "comparison": "COMPARISON_GT",
+        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cryptoops-planner\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.labels.response_code_class=\"5xx\"",
+        "denominatorAggregations": [
+          {
+            "crossSeriesReducer": "REDUCE_SUM",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "alignmentPeriod": "60s"
+          }
+        ],
+        "duration": "300s",
+        "aggregations": [
+          {
+            "crossSeriesReducer": "REDUCE_SUM",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "alignmentPeriod": "60s"
+          }
+        ],
+        "trigger": {
+          "count": 1
+        }
+      },
+      "displayName": "5xx ratio > 5% (5 min)"
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "3600s"
+    },
+    "autoClose": "28800s"
+  },
+  "userLabels": {
+    "service": "cryptoops-planner"
+  }
+}
