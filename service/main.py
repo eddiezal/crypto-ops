@@ -705,3 +705,10 @@ if __name__ == "__main__":
     # Local dev only; Cloud Run uses the Procfile (uvicorn on 0.0.0.0:$PORT)
     uvicorn.run("service.main:app", host="127.0.0.1", port=8080, reload=True)
 
+# --- CTO patch: ensure POST is allowed for /apply_paper ---
+try:
+    app.add_api_route("/apply_paper", apply_paper, methods=["POST"])
+except Exception as _e:
+    # If it's already added or symbols differ, ignore.
+    pass
+# --- end patch ---
