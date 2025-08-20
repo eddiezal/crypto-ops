@@ -1,0 +1,9 @@
+ccxt
+pandas
+pydantic>=2
+google-cloud-bigquery
+tenacity
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv

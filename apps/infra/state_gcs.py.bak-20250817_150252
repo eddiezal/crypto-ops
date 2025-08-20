@@ -1,0 +1,147 @@
+# apps/infra/state_gcs.py
+import os
+import json
+import time
+import typing as T
+from google.cloud import storage
+from google.api_core.exceptions import NotFound
+
+# Environment
+_BUCKET  = os.getenv("STATE_BUCKET")
+_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
+
+# Cached client
+_CLIENT: T.Optional[storage.Client] = None
+
+def _client() -> storage.Client:
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = storage.Client(project=_PROJECT) if _PROJECT else storage.Client()
+    return _CLIENT
+
+def _bucket_name() -> str:
+    if not _BUCKET:
+        raise RuntimeError("STATE_BUCKET env var not set")
+    return _BUCKET
+
+def _bucket() -> storage.Bucket:
+    return _client().bucket(_bucket_name())
+
+# ---------------- Text / JSON ----------------
+
+def read_text(path: str, *, encoding: str = "utf-8") -> T.Optional[str]:
+    """Return object text or None if it doesn't exist."""
+    b = _bucket()
+    blob = b.blob(path)
+    try:
+        return blob.download_as_text(encoding=encoding)
+    except NotFound:
+        return None
+
+def read_json(path: str, default: T.Any = None):
+    """Parse JSON from GCS or return default."""
+    t = read_text(path)
+    if t is None:
+        return default
+    try:
+        return json.loads(t)
+    except Exception:
+        return default
+
+def write_text(path: str, text: str,
+               *,
+               content_type: str = "application/json; charset=utf-8",
+               cache_control: str = "no-store") -> None:
+    """Write text with explicit Content-Type and Cache-Control."""
+    b = _bucket()
+    blob = b.blob(path)
+    blob.cache_control = cache_control
+    # Important: pass content_type to align header + metadata
+    blob.upload_from_string(text, content_type=content_type)
+
+def write_json(path: str, obj: T.Any, *, compact: bool = True) -> None:
+    """Write JSON with correct content type."""
+    if compact:
+        data = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+    else:
+        data = json.dumps(obj, indent=2, ensure_ascii=False)
+    write_text(path, data, content_type="application/json; charset=utf-8")
+
+# ---------------- NDJSON helpers ----------------
+
+def append_jsonl(path: str, obj: dict) -> None:
+    """
+    Append one JSON object as a line to an NDJSON object using compose.
+    Avoids downloading the existing file (efficient & more race-safe).
+    """
+    line = json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"
+    content_type = "application/x-ndjson; charset=utf-8"
+    b = _bucket()
+    client = _client()
+
+    # Upload a tiny "part" object
+    part_name = f"{path}.part.{int(time.time() * 1e6)}"
+    part = b.blob(part_name)
+    part.cache_control = "no-store"
+    part.upload_from_string(line, content_type=content_type)
+
+    dest = b.blob(path)
+    try:
+        if dest.exists(client):
+            # Keep dest metadata; ensure content_type is NDJSON
+            if (not dest.content_type) or ("ndjson" not in dest.content_type.lower()):
+                dest.content_type = content_type
+                dest.cache_control = "no-store"
+                dest.patch()
+            # Append: compose old + new
+            dest.compose([dest, part])
+            part.delete()
+        else:
+            # First line: copy part to final name and set metadata
+            b.copy_blob(part, b, path)
+            part.delete()
+            dest = b.blob(path)
+            dest.content_type = content_type
+            dest.cache_control = "no-store"
+            dest.patch()
+    finally:
+        # Best-effort cleanup if anything is left
+        try:
+            part.delete()
+        except Exception:
+            pass
+
+def read_ndjson(path: str) -> T.List[dict]:
+    """Read a newline-delimited JSON object list (or [] if missing)."""
+    txt = read_text(path)
+    if txt is None:
+        return []
+    out: T.List[dict] = []
+    for ln in txt.splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            out.append(json.loads(ln))
+        except Exception:
+            # skip malformed lines
+            pass
+    return out
+
+# ---------------- Health ----------------
+
+def selftest(prefix: str = "state"):
+    """
+    Quick write/read/delete probe under a prefix to confirm permissions.
+    """
+    b = _bucket()
+    p = f"{prefix}/selftest.txt"
+    try:
+        blob = b.blob(p)
+        blob.cache_control = "no-store"
+        blob.upload_from_string("ok", content_type="text/plain; charset=utf-8")
+        t = blob.download_as_text(encoding="utf-8")
+        blob.delete()
+        return True, f"wrote/read/deleted gs://{_bucket_name()}/{p} -> '{t}'"
+    except Exception as e:
+        return False, f"{e.__class__.__name__}: {e}"

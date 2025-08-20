@@ -1,0 +1,21 @@
+# .gcloudignore reduces what gcloud uploads on builds
+.git/
+.gitignore
+.gcloudignore
+
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+plans/
+scratch/
+data/*.db
+*.log
+*.tmp
+*.swp
+
+.env
+.env.*

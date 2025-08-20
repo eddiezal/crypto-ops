@@ -1,0 +1,10 @@
+PRD-001:
+  tests:
+    - "pytest -q tests/ingest/test_backfill.py::test_30d"
+  artifacts:
+    - "bq: crypto.price schema_version=3"
+PRD-002:
+  tests:
+    - "pytest -q tests/metrics/test_equity_api.py::test_latency"
+  artifacts:
+    - "looker: dashboard CryptoOps/Equity"

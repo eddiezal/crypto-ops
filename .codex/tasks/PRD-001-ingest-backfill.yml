@@ -1,0 +1,22 @@
+id: PRD-001-T1
+title: Add backfill(30d) to ingest_binance.py
+context:
+  repo_paths:
+    - src/ingest/ingest_binance.py
+    - src/ingest/common.py
+    - tests/ingest/test_backfill.py
+  notes:
+    - Use ccxt if available; otherwise existing REST client
+    - Respect rate-limit config in src/ingest/common.py
+objective:
+  - Implement `backfill(symbol, days=30)` with cursoring & retry
+  - Upsert to BigQuery `crypto.price` schema v3
+acceptance:
+  - "pytest -q tests/ingest/test_backfill.py::test_30d passes"
+  - "Backfill completes under 2h for 100 symbols (mocked)"
+guardrails:
+  - No secrets in repo; use ENV `BQCRED_PATH`
+  - Do not change schemas; only write via `bq_write_v3()`
+deliverables:
+  - Branch: feature/PRD-001-backfill
+  - PR with summary + rate-limit notes

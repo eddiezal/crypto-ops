@@ -1,0 +1,881 @@
+Set-StrictMode -Version Latest
+
+function Get-Context {
+  param([string]$Service='cryptoops-planner',[string]$Region='us-central1')
+  $Project = (gcloud config get-value core/project)
+  if (-not $Project) { throw "gcloud core/project is not set. Run: gcloud config set project <PROJECT_ID>" }
+  $Bucket  = "cryptoops-state-$Project"
+  $SA      = "cryptoops-run@$Project.iam.gserviceaccount.com"
+  $Url     = (gcloud run services describe $Service --region $Region --format 'value(status.url)')
+  [pscustomobject]@{ Project=$Project; Region=$Region; Service=$Service; Bucket=$Bucket; SA=$SA; Url=$Url }
+}
+
+function Get-RunUrl   { param([string]$Service='cryptoops-planner',[string]$Region='us-central1') gcloud run services describe $Service --region=$Region --format='value(status.url)' }
+function Get-RunToken { param([string]$Service='cryptoops-planner',[string]$Region='us-central1') $ctx=Get-Context -Service $Service -Region $Region; gcloud auth print-identity-token --audiences=$ctx.Url --impersonate-service-account=$ctx.SA }
+
+function Deploy-CryptoOps {
+  param([string]$SourcePath=(Get-Location).Path,[string]$Service='cryptoops-planner',[string]$Region='us-central1')
+  $ctx=Get-Context -Service $Service -Region $Region
+  gcloud run deploy $ctx.Service `
+    --source $SourcePath `
+    --region $ctx.Region `
+    --service-account $ctx.SA `
+    --no-allow-unauthenticated `
+    --set-env-vars ("TRADING_MODE=paper,COINBASE_ENV=sandbox,STATE_BUCKET={0},LEDGER_DB=/tmp/ledger.db,LEDGER_DB_GCS=gs://{0}/data/ledger.db" -f $ctx.Bucket) | Out-Host
+  Write-Host ("Deployed {0} in {1}." -f $ctx.Service,$ctx.Region)
+}
+
+function Prices-Append {
+  param([switch]$Commit,[switch]$Refresh,[string]$Service='cryptoops-planner',[string]$Region='us-central1')
+  $ctx=Get-Context -Service $Service -Region $Region
+  $token=Get-RunToken -Service $Service -Region $Region
+  $qs=@(); if($Commit){$qs+='commit=1'}else{$qs+='commit=0'}; if($Refresh){$qs+='refresh=1'}
+  $url="{0}/prices_append?{1}" -f $ctx.Url,($qs -join '&')
+  Invoke-WebRequest $url -Headers @{Authorization="Bearer $token"} | Select-Object -ExpandProperty Content
+}
+
+function Create-SchedulerJobs {
+  param([string]$Service='cryptoops-planner',[string]$Region='us-central1')
+  $ctx=Get-Context -Service $Service -Region $Region
+  $url=$ctx.Url; $sa=$ctx.SA
+  function _Upsert($name,$uri,$schedule,$tz='Etc/UTC'){
+    gcloud scheduler jobs describe $name --location=$ctx.Region *> $null
+    if($LASTEXITCODE -ne 0){
+      gcloud scheduler jobs create http $name `
+        --location=$ctx.Region --schedule="$schedule" --time-zone="$tz" `
+        --http-method=GET --uri="$uri" `
+        --oidc-service-account-email="$sa" --oidc-token-audience="$url" | Out-Host
+    } else {
+      gcloud scheduler jobs update http $name `
+        --location=$ctx.Region --schedule="$schedule" --time-zone="$tz" `
+        --http-method=GET --uri="$uri" `
+        --oidc-service-account-email="$sa" --oidc-token-audience="$url" | Out-Host
+    }
+  }
+  _Upsert 'price-append-5m' ("{0}/prices_append?commit=1&refresh=1" -f $url) '1-59/5 * * * *'
+  _Upsert 'apply-paper-15m' ("{0}/apply_paper?refresh=1&commit=1" -f $url) '*/15 * * * *'
+  _Upsert 'snapshot-daily'  ("{0}/snapshot_now?commit=1" -f $url)          '0 0 * * *'
+  Write-Host ("Scheduler jobs upserted in {0} for {1}." -f $ctx.Region,$ctx.Service)
+}
+
+function New-BqExternalTables{
+  param([string]$Dataset='cryptoops')
+  $Project=(gcloud config get-value core/project)
+  $Bucket="cryptoops-state-$Project"
+
+  $tradesSchema=@(
+    @{name='ts';type='INT64'}, @{name='symbol';type='STRING'}, @{name='side';type='STRING'},
+    @{name='usd';type='FLOAT64'}, @{name='qty';type='FLOAT64'}, @{name='run_id';type='STRING'},
+    @{name='revision';type='STRING'}, @{name='code_commit';type='STRING'}, @{name='plan_path';type='STRING'}
+  ) | ConvertTo-Json -Depth 5
+  $tradesDef=@{autodetect=$false;sourceFormat='NEWLINE_DELIMITED_JSON';sourceUris=@("gs://$Bucket/trades/*.jsonl");schema=@{fields=(ConvertFrom-Json $tradesSchema)}} | ConvertTo-Json -Depth 7
+  Set-Content "$env:TEMP\trades.def.json" -Value $tradesDef -Encoding UTF8
+  bq rm -f -t --project_id=$Project "$Dataset.trades_gcs" *> $null
+  bq mk --external_table_definition="$env:TEMP\trades.def.json" --project_id=$Project "$Dataset.trades_gcs" | Out-Host
+
+  $snapSchema=@(
+    @{name='ts';type='INT64'}, @{name='nav_before';type='FLOAT64'}, @{name='nav';type='FLOAT64'},
+    @{name='turnover_usd';type='FLOAT64'}, @{name='actions_count';type='INT64'},
+    @{name='source';type='STRING'}, @{name='revision';type='STRING'}, @{name='commit';type='BOOL'}
+  ) | ConvertTo-Json -Depth 5
+  $snapDef=@{autodetect=$false;sourceFormat='NEWLINE_DELIMITED_JSON';sourceUris=@("gs://$Bucket/snapshots/daily.jsonl");schema=@{fields=(ConvertFrom-Json $snapSchema)}} | ConvertTo-Json -Depth 7
+  Set-Content "$env:TEMP\snapshots.def.json" -Value $snapDef -Encoding UTF8
+  bq rm -f -t --project_id=$Project "$Dataset.snapshots_daily" *> $null
+  bq mk --external_table_definition="$env:TEMP\snapshots.def.json" --project_id=$Project "$Dataset.snapshots_daily" | Out-Host
+}
+
+function New-BqViews{
+  param([string]$Dataset='cryptoops')
+  $Project=(gcloud config get-value core/project)
+  $v1="SELECT TIMESTAMP_SECONDS(CAST(ts AS INT64)) AS ts_utc, symbol, side, usd, qty FROM $Dataset.trades_gcs WHERE ts >= UNIX_SECONDS(TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)) ORDER BY ts DESC"
+  bq mk --project_id=$Project --use_legacy_sql=false --view "$v1" "$Dataset.v_trades_last_7d" *> $null
+  $v2="SELECT TIMESTAMP_SECONDS(CAST(ts AS INT64)) AS ts_utc, nav, nav_before, actions_count, source, revision FROM $Dataset.snapshots_daily ORDER BY ts"
+  bq mk --project_id=$Project --use_legacy_sql=false --view "$v2" "$Dataset.v_nav" *> $null
+}
+
+function Invoke-BqTradesLast20{ param([string]$Dataset='cryptoops') $Project=(gcloud config get-value core/project); $sql="SELECT TIMESTAMP_SECONDS(CAST(ts AS INT64)) AS ts_utc, symbol, side, usd, qty, run_id FROM $Dataset.trades_gcs ORDER BY ts DESC LIMIT 20"; bq query --project_id=$Project --use_legacy_sql=false "$sql" }
+function Invoke-BqSnapshotsLast50{ param([string]$Dataset='cryptoops') $Project=(gcloud config get-value core/project); $sql="SELECT TIMESTAMP_SECONDS(CAST(ts AS INT64)) AS ts_utc, nav, nav_before, actions_count, source, revision FROM $Dataset.snapshots_daily ORDER BY ts DESC LIMIT 50"; bq query --project_id=$Project --use_legacy_sql=false "$sql" }
+
+function Create-MonEmailChannel{
+  param([Parameter(Mandatory)][string]$Email,[string]$DisplayName='Ops email')
+  $name=(gcloud alpha monitoring channels create --display-name="$DisplayName" --type=email --channel-labels=("email_address=$Email") --format="value(name)")
+  if(-not $name){ throw "Failed to create channel." }
+  $token=gcloud auth print-access-token
+  Invoke-RestMethod -Method POST -Uri ("https://monitoring.googleapis.com/v3/{0}:sendVerificationCode" -f $name) -Headers @{Authorization="Bearer $token";"Content-Type"="application/json"} -Body "{}" | Out-Null
+  Write-Host "Sent verification code to $Email. Now run: Verify-MonEmailChannel -ChannelName '$name' -Code <6digits>"
+  return $name
+}
+
+function Verify-MonEmailChannel{
+  param([Parameter(Mandatory)][string]$ChannelName,[Parameter(Mandatory)][string]$Code)
+  $token=gcloud auth print-access-token
+  Invoke-RestMethod -Method POST -Uri ("https://monitoring.googleapis.com/v3/{0}:verify" -f $ChannelName) -Headers @{Authorization="Bearer $token";"Content-Type"="application/json"} -Body (@{code=$Code}|ConvertTo-Json) | Out-Null
+  gcloud alpha monitoring channels describe "$ChannelName" --format="table(name,displayName,verificationStatus)"
+}
+
+function Create-MonPolicies{
+  param([Parameter(Mandatory)][string]$ChannelId,[string]$Service='cryptoops-planner')
+  $Project=(gcloud config get-value core/project)
+
+  $policy5=@{
+    displayName="Cloud Run 5xx error rate > 5% ($Service)"
+    enabled=$true; combiner="OR"
+    documentation=@{content="Fires when 5xx error rate > 5% for 5 minutes on **$Service** in project '$Project'.";mimeType="text/markdown"}
+    notificationChannels=@("projects/$Project/notificationChannels/$ChannelId")
+    conditions=@(@{
+      displayName="5xx ratio > 5% (5 min)"
+      conditionThreshold=@{
+        filter="resource.type=""cloud_run_revision"" AND resource.labels.service_name=""$Service"" AND metric.type=""run.googleapis.com/request_count"" AND metric.labels.response_code_class=""5xx"""
+        aggregations=@(@{alignmentPeriod="60s";perSeriesAligner="ALIGN_DELTA";crossSeriesReducer="REDUCE_SUM"})
+        denominatorFilter="resource.type=""cloud_run_revision"" AND resource.labels.service_name=""$Service"" AND metric.type=""run.googleapis.com/request_count"""
+        denominatorAggregations=@(@{alignmentPeriod="60s";perSeriesAligner="ALIGN_DELTA";crossSeriesReducer="REDUCE_SUM"})
+        comparison="COMPARISON_GT"; thresholdValue=0.05; duration="300s"; trigger=@{count=1}
+      }
+    })
+    userLabels=@{service=$Service}
+  }
+
+  $policyLat=@{
+    displayName="Cloud Run p95 latency > 2s ($Service)"
+    enabled=$true; combiner="OR"
+    documentation=@{content="Fires when p95 request latency > 2s for 5 minutes on **$Service** in project '$Project'.";mimeType="text/markdown"}
+    notificationChannels=@("projects/$Project/notificationChannels/$ChannelId")
+    conditions=@(@{
+      displayName="p95 latency > 2s (5 min)"
+      conditionThreshold=@{
+        filter="resource.type=""cloud_run_revision"" AND resource.labels.service_name=""$Service"" AND metric.type=""run.googleapis.com/request_latencies"""
+        aggregations=@(@{alignmentPeriod="60s";perSeriesAligner="ALIGN_PERCENTILE_95";crossSeriesReducer="REDUCE_MAX"})
+        comparison="COMPARISON_GT"; thresholdValue=2000; duration="300s"; trigger=@{count=1}
+      }
+    })
+    userLabels=@{service=$Service}
+  }
+
+  $p5="$env:TEMP\mon5xx.json"; $pl="$env:TEMP\monlat.json"
+  ($policy5|ConvertTo-Json -Depth 20)|Set-Content $p5 -Encoding UTF8
+  ($policyLat|ConvertTo-Json -Depth 20)|Set-Content $pl -Encoding UTF8
+  gcloud alpha monitoring policies create --policy-from-file="$p5" | Out-Host
+  gcloud alpha monitoring policies create --policy-from-file="$pl" | Out-Host
+  gcloud alpha monitoring policies list --filter=("displayName:$Service") --format="table(name,displayName,enabled)"
+}
+
+function Get-MonTimeSeries{
+  param([Parameter(Mandatory)][string]$Project,[Parameter(Mandatory)][string]$Filter,[Parameter(Mandatory)][string]$StartTime,[Parameter(Mandatory)][string]$EndTime,[hashtable]$Aggregation=@{})
+  $accessToken=gcloud auth print-access-token
+  $base="https://monitoring.googleapis.com/v3/projects/$Project/timeSeries"
+  $qsParts=@("interval.startTime=$([uri]::EscapeDataString($StartTime))","interval.endTime=$([uri]::EscapeDataString($EndTime))","filter=$([uri]::EscapeDataString($Filter))")
+  if($Aggregation){
+    if($Aggregation.alignmentPeriod){$qsParts+="aggregation.alignmentPeriod=$($Aggregation.alignmentPeriod)"}
+    if($Aggregation.perSeriesAligner){$qsParts+="aggregation.perSeriesAligner=$($Aggregation.perSeriesAligner)"}
+    if($Aggregation.crossSeriesReducer){$qsParts+="aggregation.crossSeriesReducer=$($Aggregation.crossSeriesReducer)"}
+    if($Aggregation.groupByFields){ foreach($g in $Aggregation.groupByFields){ $qsParts+="aggregation.groupByFields=$([uri]::EscapeDataString($g))" } }
+  }
+  $qs=$qsParts -join '&'
+  Invoke-RestMethod -Method GET -Headers @{Authorization="Bearer $accessToken"} -Uri "$base`?$qs"
+}
+
+function Get-CloudRunP95{
+  param([string]$Project=(gcloud config get-value core/project),[string]$Service='cryptoops-planner',[int]$WindowMinutes=5)
+  $end=(Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  $start=(Get-Date).ToUniversalTime().AddMinutes(-$WindowMinutes).ToString("yyyy-MM-ddTHH:mm:ssZ")
+  $filter='metric.type="run.googleapis.com/request_latencies" AND resource.type="cloud_run_revision" AND resource.labels.service_name="'+$Service+'"'
+  $resp=Get-MonTimeSeries -Project $Project -Filter $filter -StartTime $start -EndTime $end -Aggregation @{alignmentPeriod='60s';perSeriesAligner='ALIGN_PERCENTILE_95';crossSeriesReducer='REDUCE_MAX';groupByFields=@('resource.labels.service_name')}
+  $rows=@(); foreach($ts in ($resp.timeSeries|ForEach-Object{$_})){ foreach($pt in $ts.points){ $v=$pt.value.doubleValue; if(-not $v){$v=$pt.value.int64Value}; $rows+=[pscustomobject]@{minute_end_utc=[DateTimeOffset]::Parse($pt.interval.endTime).UtcDateTime;p95_ms=[math]::Round([double]$v,0)} } }
+  $rows|Sort-Object minute_end_utc
+}
+
+
+  }
+  function Parse-Points($resp){ $arr=@(); if($resp.timeSeries){ foreach($pt in $resp.timeSeries[0].points){ $v=$pt.value.int64Value; if(-not $v){$v=$pt.value.doubleValue}; $arr+=,@([DateTimeOffset]::Parse($pt.interval.endTime).UtcDateTime,[double]$v) } } $arr|Sort-Object { $_[0] } }
+  $numPts=Parse-Points (Invoke-ReqCount 'metric.labels.response_code_class="5xx"'); $denPts=Parse-Points (Invoke-ReqCount $null)
+  $lastNum=($numPts|Select-Object -Last 1)[0][1]; $lastDen=($denPts|Select-Object -Last 1)[0][1]; $lastRatio= if($lastDen -gt 0){[math]::Round($lastNum/$lastDen,4)} else {$null}
+  $sumNum=($numPts|ForEach-Object{$_[1]}|Measure-Object -Sum).Sum; $sumDen=($denPts|ForEach-Object{$_[1]}|Measure-Object -Sum).Sum; $windowRatio= if($sumDen -gt 0){[math]::Round($sumNum/$sumDen,4)} else {$null}
+  [pscustomobject]@{window_start_utc=$start;window_end_utc=$end;service=$Service;last_minute=[pscustomobject]@{total=$lastDen;errors_5xx=$lastNum;ratio=$lastRatio};window=[pscustomobject]@{total=$sumDen;errors_5xx=$sumNum;ratio=$windowRatio}}
+}
+
+function Enable-DebugEndpoints { param([string]$Service='cryptoops-planner',[string]$Region='us-central1') gcloud run services update $Service --region $Region --update-env-vars ENABLE_DEBUG_ENDPOINTS=1 | Out-Host }
+function Disable-DebugEndpoints{ param([string]$Service='cryptoops-planner',[string]$Region='us-central1') gcloud run services update $Service --region $Region --update-env-vars ENABLE_DEBUG_ENDPOINTS=0 | Out-Host }
+
+Write-Host "Loaded win\ops.ps1 helpers. Dot-source this file in each new PowerShell session:  . .\win\ops.ps1"
+# ========== PATCH: Monitoring Channel Helpers (robust) ==========
+
+function Get-GcpProject {
+  (gcloud config get-value core/project)
+}
+
+function Resolve-MonChannelName {
+  param(
+    [Parameter(Mandatory)][string]$Channel,  # can be ID (digits) or full name
+    [string]$Project = (Get-GcpProject)
+  )
+  # Accept:
+  #  - "17083470608561331831"
+  #  - "projects/<proj>/notificationChannels/17083470608561331831"
+  #  - "Created notification channel [projects/.../notificationChannels/1708...]"
+  if ($Channel -match '^\d+$') {
+    return "projects/$Project/notificationChannels/$Channel"
+  }
+  $m = [regex]::Match($Channel, '\[(projects/.+?)\]')
+  if ($m.Success) { return $m.Groups[1].Value }
+  if ($Channel -match '^projects/.+/notificationChannels/\d+$') { return $Channel }
+  throw "Resolve-MonChannelName: unrecognized channel string: '$Channel'"
+}
+
+function Create-MonEmailChannel {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Email,
+    [string]$DisplayName = "Ops email",
+    [string]$Project = (Get-GcpProject)
+  )
+  # Return the full resource name, not the human message.
+  $name = gcloud alpha monitoring channels create `
+            --project="$Project" `
+            --display-name="$DisplayName" `
+            --type=email `
+            --channel-labels="email_address=$Email" `
+            --format="value(name)"
+  if (-not $name) { throw "Create-MonEmailChannel: failed to create channel." }
+  Write-Host "Created: $name"
+  return $name
+}
+
+function Send-MonEmailVerification {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Channel,    # id or full name
+    [string]$Project = (Get-GcpProject)
+  )
+  $name = Resolve-MonChannelName -Channel $Channel -Project $Project
+  $token = gcloud auth print-access-token
+  $uri   = "https://monitoring.googleapis.com/v3/$name:sendVerificationCode"
+  Invoke-RestMethod -Method POST -Uri $uri -Headers @{ Authorization = "Bearer $token"; "Content-Type"="application/json" } -Body "{}" | Out-Null
+  Write-Host "Verification code sent to channel: $name"
+  return $name
+}
+
+function Verify-MonEmailChannel {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Channel,    # id or full name
+    [Parameter(Mandatory)][string]$Code,
+    [string]$Project = (Get-GcpProject)
+  )
+  $name  = Resolve-MonChannelName -Channel $Channel -Project $Project
+  $token = gcloud auth print-access-token
+  $uri   = "https://monitoring.googleapis.com/v3/$name:verify"
+  $body  = @{ code = $Code } | ConvertTo-Json
+  Invoke-RestMethod -Method POST -Uri $uri -Headers @{ Authorization = "Bearer $token"; "Content-Type"="application/json" } -Body $body | Out-Null
+  # Show status
+  gcloud alpha monitoring channels describe "$name" --format="table(name,displayName,verificationStatus)"
+  return $name
+}
+
+# Convenience: create + send code in one go, return the channel full name.
+function New-AndSend-MonEmailChannel {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Email,
+    [string]$DisplayName = "Ops email",
+    [string]$Project = (Get-GcpProject)
+  )
+  $name = Create-MonEmailChannel -Email $Email -DisplayName $DisplayName -Project $Project
+  Send-MonEmailVerification -Channel $name -Project $Project | Out-Null
+  return $name
+}
+
+# ========== END PATCH ==========
+# =================== Monitoring helpers (add-on) ===================
+
+function Get-Project { (gcloud config get-value core/project) }
+
+function Get-Service {
+  param([string]$Default = 'cryptoops-planner')
+  if ($env:CRYPTOOPS_SERVICE -and $env:CRYPTOOPS_SERVICE.Trim()) { return $env:CRYPTOOPS_SERVICE }
+  return $Default
+}
+
+function Get-AccessToken { gcloud auth print-access-token }
+
+function Create-MonEmailChannel {
+  param(
+    [Parameter(Mandatory)][string]$Email,
+    [string]$DisplayName = 'Ops email',
+    [string]$Project = (Get-Project)
+  )
+  $out = gcloud alpha monitoring channels create `
+    --display-name="$DisplayName" `
+    --type=email `
+    --channel-labels="email_address=$Email" 2>&1
+
+  # Extract full resource name (projects/.../notificationChannels/ID)
+  if ($out -match 'projects/.+/notificationChannels/\d+') {
+    $name = $Matches[0]
+    Write-Host "Created notification channel [$name]."
+    return $name
+  }
+  throw "Failed to create channel. Output:`n$out"
+}
+
+function Send-MonEmailVerification {
+  param(
+    [Parameter(Mandatory)][string]$ChannelName,  # full name: projects/<proj>/notificationChannels/<id>
+    [string]$AccessToken = (Get-AccessToken)
+  )
+  $hdr = @{ Authorization = "Bearer $AccessToken"; "Content-Type"="application/json" }
+  $uri = ("https://monitoring.googleapis.com/v3/{0}:sendVerificationCode" -f $ChannelName)
+  Invoke-RestMethod -Method POST -Headers $hdr -Uri $uri -Body "{}" | Out-Null
+  Write-Host "Verification code sent to channel email. Check your inbox."
+}
+
+function Verify-MonEmailChannel {
+  param(
+    [Parameter(Mandatory)][string]$ChannelName,  # full name
+    [Parameter(Mandatory)][string]$Code,
+    [string]$AccessToken = (Get-AccessToken)
+  )
+  $hdr = @{ Authorization = "Bearer $AccessToken"; "Content-Type"="application/json" }
+  $uri = ("https://monitoring.googleapis.com/v3/{0}:verify" -f $ChannelName)
+  Invoke-RestMethod -Method POST -Headers $hdr -Uri $uri -Body (@{ code = $Code } | ConvertTo-Json) | Out-Null
+  Write-Host "Channel verified."
+}
+
+# Convenience: create + send code in one call
+function New-AndSend-MonEmailChannel {
+  param(
+    [Parameter(Mandatory)][string]$Email,
+    [string]$DisplayName = 'Ops email'
+  )
+  $name = Create-MonEmailChannel -Email $Email -DisplayName $DisplayName
+  Send-MonEmailVerification -ChannelName $name
+  return $name
+}
+
+function Get-PolicyIdByName {
+  param(
+    [Parameter(Mandatory)][string]$DisplayName,
+    [string]$Project = (Get-Project)
+  )
+  $line = gcloud alpha monitoring policies list `
+    --filter=("displayName=""$DisplayName""") `
+    --format="value(name)"
+  if (-not $line) { return $null }
+  return ($line -replace '^.*/','')  # return just the numeric id
+}
+
+function Create-MonPolicies {
+  param(
+    [Parameter(Mandatory)][string]$ChannelId,
+    [string]$Service = (Get-Service),
+    [string]$Project = (Get-Project)
+  )
+  $tmp5xx = Join-Path $env:TEMP 'policy_5xx.json'
+  $tmplat = Join-Path $env:TEMP 'policy_latency.json'
+
+  # 5xx ratio > 5% for 5m
+  @"
+{
+  "displayName": "Cloud Run 5xx error rate > 5% ($Service)",
+  "enabled": true,
+  "combiner": "OR",
+  "documentation": {
+    "content": "Fires when 5xx error rate > 5% for 5 minutes on **$Service** in project '$Project'.",
+    "mimeType": "text/markdown"
+  },
+  "notificationChannels": [
+    "projects/$Project/notificationChannels/$ChannelId"
+  ],
+  "conditions": [
+    {
+      "displayName": "5xx ratio > 5% (5 min)",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$Service\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.labels.response_code_class=\"5xx\"",
+        "denominatorFilter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$Service\" AND metric.type=\"run.googleapis.com/request_count\"",
+        "aggregations": [
+          { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_DELTA", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "denominatorAggregations": [
+          { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_DELTA", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.05,
+        "duration": "300s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "userLabels": { "service": "$Service" }
+}
+"@ | Set-Content -Encoding UTF8 $tmp5xx
+
+  # p95 latency > 2s for 5m
+  @"
+{
+  "displayName": "Cloud Run p95 latency > 2s ($Service)",
+  "enabled": true,
+  "combiner": "OR",
+  "documentation": {
+    "content": "Fires when p95 request latency > 2s for 5 minutes on **$Service** in project '$Project'.",
+    "mimeType": "text/markdown"
+  },
+  "notificationChannels": [
+    "projects/$Project/notificationChannels/$ChannelId"
+  ],
+  "conditions": [
+    {
+      "displayName": "p95 latency > 2s (5 min)",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$Service\" AND metric.type=\"run.googleapis.com/request_latencies\"",
+        "aggregations": [
+          { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_PERCENTILE_95", "crossSeriesReducer": "REDUCE_MAX" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 2000,
+        "duration": "300s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "userLabels": { "service": "$Service" }
+}
+"@ | Set-Content -Encoding UTF8 $tmplat
+
+  gcloud alpha monitoring policies create --policy-from-file="$tmp5xx"  | Out-Null
+  gcloud alpha monitoring policies create --policy-from-file="$tmplat" | Out-Null
+  Write-Host "Created alert policies for service '$Service'."
+}
+
+# (You already have Get-CloudRunP95 / Get-CloudRun5xxRatio in your file; keep those.)
+# =================== end Monitoring helpers ===================
+# ===== HOTFIX: more robust Cloud Monitoring helpers =====
+
+function Get-CloudRunP95 {
+  param(
+    [string]$Project = (gcloud config get-value core/project),
+    [string]$Service = 'cryptoops-planner',
+    [int]$WindowMinutes = 5
+  )
+  $end   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  $start = (Get-Date).ToUniversalTime().AddMinutes(-$WindowMinutes).ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+  $filter = @(
+    'metric.type="run.googleapis.com/request_latencies"',
+    'resource.type="cloud_run_revision"',
+    "resource.labels.service_name=""$Service"""
+  ) -join ' AND '
+
+  try {
+    $resp = Get-MonTimeSeries -Project $Project -Filter $filter -StartTime $start -EndTime $end -Aggregation @{
+      alignmentPeriod    = '60s'
+      perSeriesAligner   = 'ALIGN_PERCENTILE_95'
+      crossSeriesReducer = 'REDUCE_MAX'
+      groupByFields      = @('resource.labels.service_name')
+    }
+  } catch {
+    Write-Warning "Monitoring API call failed: $($_.Exception.Message)"
+    return @()
+  }
+
+  if (-not $resp -or -not ($resp | Get-Member -Name timeSeries -ErrorAction SilentlyContinue)) {
+    Write-Verbose "No timeSeries in response (window $start -> $end)."
+    return @()
+  }
+
+  $rows = @()
+  foreach ($ts in ($resp.timeSeries | ForEach-Object { $_ })) {
+    foreach ($pt in ($ts.points | ForEach-Object { $_ })) {
+      $val = $pt.value.doubleValue; if (-not $val) { $val = $pt.value.int64Value }
+      if ($null -ne $val) {
+        $rows += [pscustomobject]@{
+          minute_end_utc = [DateTimeOffset]::Parse($pt.interval.endTime).UtcDateTime
+          p95_ms         = [math]::Round([double]$val, 0)   # request_latencies unit: ms
+        }
+      }
+    }
+  }
+  $rows | Sort-Object minute_end_utc
+}
+
+
+    $flt = ($parts | Where-Object { $_ -and $_.Trim() }) -join ' AND '
+
+    Get-MonTimeSeries -Project $Project -Filter $flt -StartTime $start -EndTime $end -Aggregation @{
+      alignmentPeriod    = '60s'
+      perSeriesAligner   = 'ALIGN_DELTA'
+      crossSeriesReducer = 'REDUCE_SUM'
+      groupByFields      = @('resource.labels.service_name')
+    }
+  }
+
+  # Safe parser for time series points -> ordered [time, value]
+  function Parse-Points($resp) {
+    $arr = @()
+    if ($resp -and ($resp | Get-Member -Name timeSeries -ErrorAction SilentlyContinue)) {
+      $series = $resp.timeSeries
+      if ($series -and $series.Count -gt 0 -and $series[0].points) {
+        foreach ($pt in $series[0].points) {
+          $v = $pt.value.int64Value; if (-not $v) { $v = $pt.value.doubleValue }
+          if ($null -ne $v) {
+            $t = [DateTimeOffset]::Parse($pt.interval.endTime).UtcDateTime
+            $arr += ,@($t, [double]$v)
+          }
+        }
+      }
+    }
+    $arr | Sort-Object { $_[0] }
+  }
+
+  try {
+    $resp5xx = Invoke-ReqCount 'metric.labels.response_code_class="5xx"'
+    $respAll = Invoke-ReqCount $null
+  } catch {
+    Write-Warning "Monitoring API call failed: $($_.Exception.Message)"
+    return [pscustomobject]@{
+      window_start_utc = $start
+      window_end_utc   = $end
+      service          = $Service
+      last_minute      = [pscustomobject]@{ total = $null; errors_5xx = $null; ratio = $null }
+      window           = [pscustomobject]@{ total = $null; errors_5xx = $null; ratio = $null }
+    }
+  }
+
+  $numPts = Parse-Points $resp5xx
+  $denPts = Parse-Points $respAll
+
+  # last-minute ratio (if aligned points exist)
+  $lastNum = if ($numPts.Count -gt 0) { $numPts[-1][1] } else { 0 }
+  $lastDen = if ($denPts.Count -gt 0) { $denPts[-1][1] } else { 0 }
+  $lastRatio = if ($lastDen -gt 0) { [math]::Round($lastNum / $lastDen, 4) } else { $null }
+
+  # window ratio (sum across window)
+  $sumNum = ($numPts | ForEach-Object { $_[1] } | Measure-Object -Sum).Sum
+  $sumDen = ($denPts | ForEach-Object { $_[1] } | Measure-Object -Sum).Sum
+  $windowRatio = if ($sumDen -gt 0) { [math]::Round($sumNum / $sumDen, 4) } else { $null }
+
+  [pscustomobject]@{
+    window_start_utc = $start
+    window_end_utc   = $end
+    service          = $Service
+    last_minute      = [pscustomobject]@{ total = $lastDen; errors_5xx = $lastNum; ratio = $lastRatio }
+    window           = [pscustomobject]@{ total = $sumDen; errors_5xx = $sumNum; ratio = $windowRatio }
+  }
+}
+# ===== end HOTFIX =====
+# --- PATCH: robust Get-CloudRun5xxRatio (uses .Length and safe parser) ---
+
+  function _Req([string]$classFilter) {
+    $parts = @(
+      'metric.type="run.googleapis.com/request_count"',
+      'resource.type="cloud_run_revision"',
+      "resource.labels.service_name=""$Service"""
+    )
+    if ($classFilter) { $parts += $classFilter }
+    $flt = ($parts | Where-Object { $_ -and $_.Trim() }) -join ' AND '
+    Get-MonTimeSeries -Project $Project -Filter $flt -StartTime $start -EndTime $end -Aggregation $agg
+  }
+  function _Pts($resp) {
+    $arr = @()
+    if ($resp -and $resp.timeSeries -and $resp.timeSeries.Count -gt 0) {
+      foreach ($pt in $resp.timeSeries[0].points) {
+        $v = $pt.value.int64Value; if (-not $v) { $v = $pt.value.doubleValue }
+        if ($null -ne $v) {
+          $t = [DateTimeOffset]::Parse($pt.interval.endTime).UtcDateTime
+          $arr += ,@($t, [double]$v)
+        }
+      }
+    }
+    $sorted = $arr | Sort-Object { $_[0] }
+    if ($null -eq $sorted) { @() } else { @($sorted) }
+  }
+  $numPts = _Pts (_Req 'metric.labels.response_code_class="5xx"')
+  $denPts = _Pts (_Req $null)
+  $lastNum = if ($numPts.Length -gt 0) { $numPts[-1][1] } else { 0 }
+  $lastDen = if ($denPts.Length -gt 0) { $denPts[-1][1] } else { 0 }
+  $lastRatio = if ($lastDen -gt 0) { [math]::Round($lastNum / $lastDen, 4) } else { $null }
+  $sumNum = (($numPts | ForEach-Object { $_[1] }) | Measure-Object -Sum).Sum
+  if ($null -eq $sumNum) { $sumNum = 0 }
+  $sumDen = (($denPts | ForEach-Object { $_[1] }) | Measure-Object -Sum).Sum
+  if ($null -eq $sumDen) { $sumDen = 0 }
+  $windowRatio = if ($sumDen -gt 0) { [math]::Round($sumNum / $sumDen, 4) } else { $null }
+  [pscustomobject]@{
+    window_start_utc = $start
+    window_end_utc   = $end
+    service          = $Service
+    last_minute      = [pscustomobject]@{ total = $lastDen; errors_5xx = $lastNum; ratio = $lastRatio }
+    window           = [pscustomobject]@{ total = $sumDen; errors_5xx = $sumNum; ratio = $windowRatio }
+  }
+}
+# --- END PATCH ---
+# --- FIXED Get-CloudRun5xxRatio (property-safe, returns arrays, uses .Length) ---
+# --- END FIX ---
+
+  function _Req([string]$classFilter) {
+    $parts = @('metric.type="run.googleapis.com/request_count"','resource.type="cloud_run_revision"', "resource.labels.service_name=""$Service""")
+    if ($classFilter) { $parts += $classFilter }
+    $flt = ($parts | Where-Object { $_ -and $_.Trim() }) -join ' AND '
+    Get-MonTimeSeries -Project $Project -Filter $flt -StartTime $start -EndTime $end -Aggregation $agg
+  }
+  function _HasProp($o, [string]$name) { ($o -ne $null) -and ($o.PSObject.Properties.Name -contains $name) }
+  function _Pts($resp) {
+    $arr = @()
+    if (_HasProp $resp 'timeSeries' -and $resp.timeSeries -and $resp.timeSeries.Length -gt 0) {
+      $series = $resp.timeSeries[0]
+      if (_HasProp $series 'points' -and $series.points) {
+        foreach ($pt in $series.points) {
+          $v = $pt.value.int64Value; if ($null -eq $v) { $v = $pt.value.doubleValue }
+          if ($null -ne $v) {
+            $arr += ,@([DateTimeOffset]::Parse($pt.interval.endTime).UtcDateTime, [double]$v)
+          }
+        }
+      }
+    }
+    $sorted = $arr | Sort-Object { $_[0] }
+    if ($null -eq $sorted) { @() } else { @($sorted) }
+  }
+
+  try {
+    $numPts = _Pts (_Req 'metric.labels.response_code_class="5xx"')
+    $denPts = _Pts (_Req $null)
+  } catch {
+    return [pscustomobject]@{
+      window_start_utc=$start; window_end_utc=$end; service=$Service
+      last_minute=[pscustomobject]@{ total=$null; errors_5xx=$null; ratio=$null }
+      window=[pscustomobject]@{ total=$null; errors_5xx=$null; ratio=$null }
+    }
+  }
+
+  $lastNum = if ($numPts.Length -gt 0) { $numPts[-1][1] } else { 0 }
+  $lastDen = if ($denPts.Length -gt 0) { $denPts[-1][1] } else { 0 }
+  $lastRatio = if ($lastDen -gt 0) { [math]::Round($lastNum / $lastDen, 4) } else { $null }
+
+  $sumNum = (($numPts | ForEach-Object { $_[1] }) | Measure-Object -Sum).Sum; if ($null -eq $sumNum) { $sumNum = 0 }
+  $sumDen = (($denPts | ForEach-Object { $_[1] }) | Measure-Object -Sum).Sum; if ($null -eq $sumDen) { $sumDen = 0 }
+  $windowRatio = if ($sumDen -gt 0) { [math]::Round($sumNum / $sumDen, 4) } else { $null }
+
+  [pscustomobject]@{
+    window_start_utc=$start; window_end_utc=$end; service=$Service
+    last_minute=[pscustomobject]@{ total=$lastDen; errors_5xx=$lastNum; ratio=$lastRatio }
+    window=[pscustomobject]@{ total=$sumDen; errors_5xx=$sumNum; ratio=$windowRatio }
+  }
+}
+
+
+  # Build Monitoring filters
+  $base = ('metric.type="run.googleapis.com/request_count" AND ' +
+           'resource.type="cloud_run_revision" AND ' +
+           'resource.labels.service_name="{0}"') -f $Service
+  $fltNum = $base + ' AND metric.labels.response_code_class="5xx"'
+  $fltDen = $base
+
+  # Query Monitoring
+  $respNum = Get-MonTimeSeries -Project $Project -Filter $fltNum -StartTime $start -EndTime $end -Aggregation $agg
+  $respDen = Get-MonTimeSeries -Project $Project -Filter $fltDen -StartTime $start -EndTime $end -Aggregation $agg
+
+  # Safe point extractor → always returns an ARRAY of [time,value]
+  function _Points($resp) {
+    $list = @()
+    if ($null -ne $resp -and ($resp.PSObject.Properties.Name -contains 'timeSeries')) {
+      $ts = $resp.timeSeries
+      $series = if ($ts -is [System.Array]) { $ts } elseif ($ts) { @($ts) } else { @() }
+      if ($series.Length -gt 0 -and ($series[0].PSObject.Properties.Name -contains 'points')) {
+        foreach ($p in $series[0].points) {
+          $v = $p.value.int64Value; if ($null -eq $v) { $v = $p.value.doubleValue }
+          if ($null -ne $v) {
+            $list += ,@([DateTimeOffset]::Parse($p.interval.endTime).UtcDateTime, [double]$v)
+          }
+        }
+      }
+    }
+    $s = $list | Sort-Object { $_[0] }
+    if ($null -eq $s) { @() } else { @($s) }
+  }
+
+  $num = _Points $respNum
+  $den = _Points $respDen
+
+  # Last aligned minute
+  $lastNum   = if ($num.Length -gt 0) { $num[-1][1] } else { 0 }
+  $lastDen   = if ($den.Length -gt 0) { $den[-1][1] } else { 0 }
+  $lastRatio = if ($lastDen -gt 0) { [math]::Round($lastNum / $lastDen, 4) } else { $null }
+
+  # Window totals
+  $sumNum = (($num | ForEach-Object { $_[1] }) | Measure-Object -Sum).Sum; if ($null -eq $sumNum) { $sumNum = 0 }
+  $sumDen = (($den | ForEach-Object { $_[1] }) | Measure-Object -Sum).Sum; if ($null -eq $sumDen) { $sumDen = 0 }
+  $windowRatio = if ($sumDen -gt 0) { [math]::Round($sumNum / $sumDen, 4) } else { $null }
+
+  [pscustomobject]@{
+    window_start_utc = $start
+    window_end_utc   = $end
+    service          = $Service
+    last_minute      = [pscustomobject]@{ total = $lastDen; errors_5xx = $lastNum; ratio = $lastRatio }
+    window           = [pscustomobject]@{ total = $sumDen; errors_5xx = $sumNum; ratio = $windowRatio }
+  }
+}
+
+
+  # Build filters
+  $base = ('metric.type="run.googleapis.com/request_count" AND ' +
+           'resource.type="cloud_run_revision" AND ' +
+           'resource.labels.service_name="{0}"') -f $Service
+  $fltNum = $base + ' AND metric.labels.response_code_class="5xx"'
+  $fltDen = $base
+
+  # Query Monitoring
+  $respNum = Get-MonTimeSeries -Project $Project -Filter $fltNum -StartTime $start -EndTime $end -Aggregation $agg
+  $respDen = Get-MonTimeSeries -Project $Project -Filter $fltDen -StartTime $start -EndTime $end -Aggregation $agg
+
+  # --- Always return an ARRAY of {t, v} points (even if empty or 1 point) ---
+  function _Points($resp) {
+    $out = New-Object 'System.Collections.Generic.List[object]'
+    if ($null -ne $resp -and ($resp.PSObject.Properties.Name -contains 'timeSeries')) {
+      $ts = $resp.timeSeries
+      # normalize to array
+      if ($ts -isnot [System.Array]) { $ts = @($ts) }
+      if ($ts.Length -gt 0 -and ($ts[0].PSObject.Properties.Name -contains 'points') -and $ts[0].points) {
+        foreach ($p in $ts[0].points) {
+          # int64 when reduced/summed, double sometimes; use whichever is present
+          $v = $p.value.doubleValue
+          if ($null -eq $v -and $p.value) { $v = [double]$p.value.int64Value }
+          if ($null -ne $v) {
+            $t = [DateTimeOffset]::Parse($p.interval.endTime).UtcDateTime
+            $null = $out.Add([pscustomobject]@{ t = $t; v = [double]$v })
+          }
+        }
+      }
+    }
+    # Force array semantics even for single element
+    return ,($out.ToArray() | Sort-Object t)
+  }
+
+  try {
+    $num = _Points $respNum
+    $den = _Points $respDen
+  } catch {
+    return [pscustomobject]@{
+      window_start_utc = $start
+      window_end_utc   = $end
+      service          = $Service
+      last_minute      = [pscustomobject]@{ total = $null; errors_5xx = $null; ratio = $null }
+      window           = [pscustomobject]@{ total = $null; errors_5xx = $null; ratio = $null }
+    }
+  }
+
+  # Last aligned minute (safe)
+  $lastNum   = if ($num.Length -gt 0) { $num[-1].v } else { 0 }
+  $lastDen   = if ($den.Length -gt 0) { $den[-1].v } else { 0 }
+  $lastRatio = if ($lastDen -gt 0) { [math]::Round($lastNum / $lastDen, 4) } else { $null }
+
+  # Window totals (safe)
+  $sumNum = ($num | Measure-Object -Property v -Sum).Sum; if ($null -eq $sumNum) { $sumNum = 0 }
+  $sumDen = ($den | Measure-Object -Property v -Sum).Sum; if ($null -eq $sumDen) { $sumDen = 0 }
+  $windowRatio = if ($sumDen -gt 0) { [math]::Round($sumNum / $sumDen, 4) } else { $null }
+
+  [pscustomobject]@{
+    window_start_utc = $start
+    window_end_utc   = $end
+    service          = $Service
+    last_minute      = [pscustomobject]@{ total = $lastDen; errors_5xx = $lastNum; ratio = $lastRatio }
+    window           = [pscustomobject]@{ total = $sumDen; errors_5xx = $sumNum; ratio = $windowRatio }
+  }
+}
+
+
+
+  param(
+    [string]$Project = (gcloud config get-value core/project),
+    [string]$Service = 'cryptoops-planner',
+    [int]$WindowMinutes = 5
+  )
+
+  $end   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $start = (Get-Date).ToUniversalTime().AddMinutes(-$WindowMinutes).ToString('yyyy-MM-ddTHH:mm:ssZ')
+
+  # Per-minute deltas, sum across series, group by service
+  $agg = @{
+    alignmentPeriod    = '60s'
+    perSeriesAligner   = 'ALIGN_DELTA'
+    crossSeriesReducer = 'REDUCE_SUM'
+    groupByFields      = @('resource.labels.service_name')
+  }
+
+  # Monitoring filters
+  $base  = ('metric.type="run.googleapis.com/request_count" AND ' +
+            'resource.type="cloud_run_revision" AND ' +
+            'resource.labels.service_name="{0}"') -f $Service
+  $fltNum = $base + ' AND metric.labels.response_code_class="5xx"'
+  $fltDen = $base
+
+  # Query
+  $respNum = Get-MonTimeSeries -Project $Project -Filter $fltNum -StartTime $start -EndTime $end -Aggregation $agg
+  $respDen = Get-MonTimeSeries -Project $Project -Filter $fltDen -StartTime $start -EndTime $end -Aggregation $agg
+
+  # Safely extract a numeric from points[*].value regardless of shape
+  function _GetTypedValue($point) {
+    if ($null -eq $point) { return $null }
+    $valObj = $point.value
+    if ($null -eq $valObj) { return $null }
+
+    $names = $valObj.PSObject.Properties.Name
+    if ($names -contains 'doubleValue') { return [double]$valObj.doubleValue }
+    if ($names -contains 'int64Value')  { return [double]$valObj.int64Value }
+    # Very defensive: if Monitoring ever returns a raw scalar
+    if ($valObj -is [double] -or $valObj -is [int] -or $valObj -is [long]) { return [double]$valObj }
+    return $null
+  }
+
+  # Turn a timeSeries response into a strictly-typed numeric array (newest-last)
+  function _ValuesFromResp($resp) {
+    if ($null -eq $resp -or -not ($resp.PSObject.Properties.Name -contains 'timeSeries')) { return @() }
+    $ts = $resp.timeSeries
+    if ($ts -isnot [System.Array]) { $ts = @($ts) }
+    if ($ts.Length -lt 1) { return @() }
+
+    $series = $ts[0]
+    if (-not ($series.PSObject.Properties.Name -contains 'points') -or -not $series.points) { return @() }
+    $pts = $series.points | Sort-Object { [DateTimeOffset]::Parse($_.interval.endTime) }
+
+    $vals = @()
+    foreach ($p in $pts) {
+      $v = _GetTypedValue $p
+      if ($null -ne $v) { $vals += $v }
+    }
+    if ($vals -is [System.Array]) { return $vals } else { return @($vals) }
+  }
+
+  try {
+    $numVals = _ValuesFromResp $respNum   # per-minute 5xx counts
+    $denVals = _ValuesFromResp $respDen   # per-minute ALL counts
+  } catch {
+    return [pscustomobject]@{
+      window_start_utc = $start
+      window_end_utc   = $end
+      service          = $Service
+      last_minute      = [pscustomobject]@{ total = $null; errors_5xx = $null; ratio = $null }
+      window           = [pscustomobject]@{ total = $null; errors_5xx = $null; ratio = $null }
+    }
+  }
+
+  # Last aligned minute (safe)
+  $lastNum   = if ($numVals.Length -gt 0) { [double]$numVals[-1] } else { 0.0 }
+  $lastDen   = if ($denVals.Length -gt 0) { [double]$denVals[-1] } else { 0.0 }
+  $lastRatio = if ($lastDen -gt 0) { [math]::Round($lastNum / $lastDen, 4) } else { $null }
+
+  # Window totals (safe)
+  $sumNum = ($numVals | Measure-Object -Sum).Sum; if ($null -eq $sumNum) { $sumNum = 0.0 }
+  $sumDen = ($denVals | Measure-Object -Sum).Sum; if ($null -eq $sumDen) { $sumDen = 0.0 }
+  $windowRatio = if ($sumDen -gt 0) { [math]::Round([double]$sumNum / [double]$sumDen, 4) } else { $null }
+
+  [pscustomobject]@{
+    window_start_utc = $start
+    window_end_utc   = $end
+    service          = $Service
+    last_minute      = [pscustomobject]@{ total = [double]$lastDen; errors_5xx = [double]$lastNum; ratio = $lastRatio }
+    window           = [pscustomobject]@{ total = [double]$sumDen; errors_5xx = [double]$sumNum; ratio = $windowRatio }
+  }
+
+
+
+<<PASTE THE FUNCTION CODE FROM SECTION 1 HERE>>
+
+
+<<PASTE THE FUNCTION CODE FROM SECTION 1 HERE>>
