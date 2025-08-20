@@ -7,11 +7,11 @@ from fastapi import FastAPI, Query, Header, HTTPException
 import requests, sqlite3
 
 from apps.rebalancer.main import compute_actions
-from apps.infra.state_gcs import read_json, write_json, append_jsonl
+from apps.infra.state import read_json, write_json, append_jsonl
 
 # Optional helpers from state_gcs (we fall back gracefully if unavailable)
 try:
-    from apps.infra.state_gcs import read_ndjson, selftest  # type: ignore
+    from apps.infra.state import read_ndjson, selftest  # type: ignore
 except Exception:  # pragma: no cover
     read_ndjson = None
     selftest = None
@@ -99,7 +99,7 @@ def _safe_read_ndjson(path: str) -> List[dict]:
         except Exception:
             return []
     try:
-        from apps.infra.state_gcs import read_text
+        from apps.infra.state import read_text
         txt = read_text(path)
         if not txt:
             return []
@@ -704,3 +704,4 @@ if __name__ == "__main__":
     import uvicorn
     # Local dev only; Cloud Run uses the Procfile (uvicorn on 0.0.0.0:$PORT)
     uvicorn.run("service.main:app", host="127.0.0.1", port=8080, reload=True)
+
