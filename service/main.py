@@ -6,7 +6,8 @@ import requests
 from fastapi import FastAPI, Query, Header, HTTPException
 
 # Core planner interface; the app must tolerate compute failure
-from apps.rebalancer.main import compute_actions, _band_from_policy
+from apps.rebalancer.main import compute_actions
+from apps.rebalancer.constraints import evaluate as _eval_constraints, _band_from_policy
 from apps.infra.state import read_json, write_json, append_jsonl
 
 app = FastAPI(title="CryptoOps Planner", version="1.0")
@@ -292,3 +293,87 @@ def metrics():
         f'cryptoops_env{{mode="{meta.get("trading_mode","")}",exchange="{meta.get("coinbase_env","")}"}} 1',
     ]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
+
+def _load_policy_config() -> Dict[str, Any]:
+    base_dir = Path(__file__).resolve().parents[1] / "configs"
+    pj = base_dir / "policy.rebalancer.json"
+    py = base_dir / "policy.rebalancer.yaml"
+    cfg: Dict[str, Any] = {}
+    try:
+        if pj.exists():
+            cfg = _json.loads(pj.read_text(encoding="utf-8"))
+        elif py.exists():
+            try:
+                import yaml as _yaml  # type: ignore
+                cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
+            except Exception:
+                cfg = {}
+    except Exception:
+        cfg = {}
+    return cfg
+
+def _with_policy_band(result: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = result.setdefault("config", {})
+    try:
+        cfg["band"] = _resolve_band_from_policy()
+    except Exception:
+        cfg.setdefault("band", 0.01)
+    return result
+
+@app.get("/plan", tags=["planner"])
+def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
+    """
+    Returns the current plan JSON. Always publishes policy band; halts on constraint hits.
+    """
+    try:
+        _ensure_ledger_db(force=bool(refresh))
+    except Exception:
+        pass
+
+    overrides: Dict[str, float] = {}
+    for kv in (pair or []):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            try:
+                overrides[k.strip()] = float(v)
+            except Exception:
+                pass
+
+    try:
+        result = compute_actions("trading", override_prices=overrides or None)
+        result = _with_policy_band(result)
+
+        # constraints
+        policy_cfg = _load_policy_config()
+        result2, hits = _eval_constraints(result, policy_cfg)
+        if hits:
+            try:
+                append_jsonl("logs/constraints.jsonl", {
+                    "ts": int(time.time()),
+                    "account": "trading",
+                    "hits": hits,
+                    "band": result2.get("config", {}).get("band"),
+                    "meta": _mode_payload(),
+                })
+            except Exception:
+                pass
+        return result2
+    except Exception as e:
+        # Fallback: try last saved prices in state, otherwise public spot
+        prices = read_json("state/latest_prices.json", default=None)
+        if not prices:
+            targets = _load_targets_from_policy()
+            prices  = _fetch_public_prices(_pairs_from_targets(targets))
+        balances = read_json("state/balances.json", default={}) or {}
+        note = f"planner_fallback: {e.__class__.__name__}"
+        if debug:
+            note += f" | {e}"
+        return {
+            "account": "trading",
+            "prices": prices or {},
+            "balances": balances,
+            "actions": [],
+            "note": note,
+            "config": {"band": _resolve_band_from_policy(), "halted": False},
+        }
+
