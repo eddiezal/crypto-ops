@@ -147,7 +147,7 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             except Exception: pass
 
     try:
-        return compute_actions("trading", override_prices=overrides or None)
+        result = compute_actions("trading", override_prices=overrides or None)`n        cfg = result.setdefault("config", {})`n        cfg["band"] = _resolve_band_from_policy()`n        return result
     except Exception as e:
         prices = read_json("state/latest_prices.json", default=None)
         if not prices:
@@ -366,6 +366,7 @@ def snapshot_now(commit: int = 1, x_app_key: Optional[str] = Header(None), debug
             if debug:
                 raise HTTPException(status_code=500, detail=f"snapshot write failed: {e.__class__.__name__}: {e}")
     return result
+
 
 
 
