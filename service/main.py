@@ -712,3 +712,17 @@ except Exception as _e:
     # If it's already added or symbols differ, ignore.
     pass
 # --- end patch ---
+from fastapi import Body  # ensure import is present at the top of file
+
+@app.post("/prices_append", tags=["ingest"])
+def prices_append_post(payload: dict = Body(default=None), x_app_key: Optional[str] = Header(None)):
+    # If payload supplies symbols, adapt to existing handler
+    # Expected payload: { "symbol": ["BTC-USD","ETH-USD"] } OR {} to use defaults
+    symbols = None
+    if payload and isinstance(payload.get("symbol"), list):
+        symbols = payload["symbol"]
+    return prices_append(symbol=symbols, commit=1, refresh=1, x_app_key=x_app_key)
+
+@app.post("/apply_paper", tags=["planner"])
+def apply_paper_post(commit: int = 0, refresh: int = 0, x_app_key: Optional[str] = Header(None)):
+    return apply_paper(commit=commit, refresh=refresh, x_app_key=x_app_key, debug=0)
