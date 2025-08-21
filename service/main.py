@@ -108,7 +108,15 @@ def _resolve_band_from_policy(default_band: float = 0.01) -> float:
         pj = base_dir / "policy.rebalancer.json"
         py = base_dir / "policy.rebalancer.yaml"
         cfg = {}
-        if pj.exists():
+        
+def _with_policy_band(result: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = result.setdefault("config", {})
+    try:
+        cfg["band"] = _resolve_band_from_policy()
+    except Exception:
+        cfg.setdefault("band", 0.01)
+    return result
+if pj.exists():
             cfg = _json.loads(pj.read_text(encoding="utf-8"))
         elif py.exists():
             try:
@@ -376,4 +384,62 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             "note": note,
             "config": {"band": _resolve_band_from_policy(), "halted": False},
         }
+
+@app.get("/plan", tags=["planner"])
+def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
+    """
+    Returns the current plan JSON. Always publishes policy band; halts on constraint hits.
+    """
+    try:
+        _ensure_ledger_db(force=bool(refresh))
+    except Exception:
+        pass
+
+    overrides: Dict[str, float] = {}
+    for kv in (pair or []):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            try:
+                overrides[k.strip()] = float(v)
+            except Exception:
+                pass
+
+    try:
+        result = compute_actions("trading", override_prices=overrides or None)
+        result = _with_policy_band(result)
+
+        # constraints
+        policy_cfg = _load_policy_config()
+        result2, hits = _eval_constraints(result, policy_cfg)
+        if hits:
+            try:
+                append_jsonl("logs/constraints.jsonl", {
+                    "ts": int(time.time()),
+                    "account": "trading",
+                    "hits": hits,
+                    "band": result2.get("config", {}).get("band"),
+                    "meta": _mode_payload(),
+                })
+            except Exception:
+                pass
+        return result2
+    except Exception as e:
+        # Fallback: try last saved prices in state, otherwise public spot
+        prices = read_json("state/latest_prices.json", default=None)
+        if not prices:
+            targets = _load_targets_from_policy()
+            prices  = _fetch_public_prices(_pairs_from_targets(targets))
+        balances = read_json("state/balances.json", default={}) or {}
+        note = f"planner_fallback: {e.__class__.__name__}"
+        if debug:
+            note += f" | {e}"
+        return {
+            "account": "trading",
+            "prices": prices or {},
+            "balances": balances,
+            "actions": [],
+            "note": note,
+            "config": {"band": _resolve_band_from_policy(), "halted": False},
+        }
+
 
