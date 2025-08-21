@@ -29,7 +29,13 @@ if ENABLE_DEBUG:
     @app.get("/debug/sleep", include_in_schema=False, tags=["debug"])
     def _debug_sleep(ms: int = 2500):
         time.sleep(max(0, ms) / 1000.0)
-        return {"slept_ms": ms}
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"slept_ms": ms}
 # --- end conditional debug endpoints ---
 
 
@@ -53,7 +59,13 @@ def _config_hash() -> str:
     return hashlib.sha256(s.encode()).hexdigest()[:12]
 
 def _mode_payload() -> Dict[str, Any]:
-    return {
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_
         "trading_mode": os.getenv("TRADING_MODE", "paper"),
         "coinbase_env": os.getenv("COINBASE_ENV", "sandbox"),
         "state_bucket": os.getenv("STATE_BUCKET", "(unset)"),
@@ -121,9 +133,21 @@ def _load_targets_from_policy() -> Dict[str, float]:
         cfg_path = Path(__file__).resolve().parents[1] / "configs" / "policy.rebalancer.json"
         data = _json.loads(cfg_path.read_text(encoding="utf-8"))
         t = data.get("targets_trading") or data.get("targets") or {}
-        return {k.upper(): float(v) for k, v in t.items()}
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_k.upper(): float(v) for k, v in t.items()}
     except Exception:
-        return {"BTC": 0.45, "ETH": 0.25, "SOL": 0.15, "LINK": 0.15}
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"BTC": 0.45, "ETH": 0.25, "SOL": 0.15, "LINK": 0.15}
 
 def _pairs_from_targets(t: Dict[str, float]) -> List[str]:
     return [f"{k}-USD" for k in t.keys()]
@@ -244,7 +268,13 @@ def _startup_fetch_db():
 @app.get("/readyz",      include_in_schema=False, tags=["meta"])
 @app.get("/_ah/health",  include_in_schema=False, tags=["meta"])
 def health_all():
-    return {"ok": True, **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, **_mode_payload()}
 
 @app.get("/mode", tags=["meta"])
 def mode():
@@ -254,16 +284,34 @@ def mode():
 def myip():
     try:
         r = requests.get("https://api.ipify.org?format=json", timeout=5)
-        return {"egress_ip": (r.json() or {}).get("ip")}
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"egress_ip": (r.json() or {}).get("ip")}
     except Exception as e:
-        return {"error": f"ipify failed: {e.__class__.__name__}"}
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"error": f"ipify failed: {e.__class__.__name__}"}
 
 @app.get("/gcs_selftest", tags=["meta"])
 def gcs_selftest():
     if selftest is None:
         raise HTTPException(status_code=501, detail="selftest helper not available")
     ok, detail = selftest("state")
-    return {"ok": ok, "detail": detail, **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": ok, "detail": detail, **_mode_payload()}
 
 # --- tiny debug endpoints -----------------------------------------------
 
@@ -278,12 +326,24 @@ def planner_force_dbfetch():
     exists = os.path.exists(local)
     size = os.path.getsize(local) if exists else 0
     mtime = _gmtime_iso(int(os.path.getmtime(local))) if exists else None
-    return {"ok": True, "status": {"gcs": gcs_uri, "local": local, "downloaded": True, "exists": exists, "size": size, "mtime_utc": mtime}, **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, "status": {"gcs": gcs_uri, "local": local, "downloaded": True, "exists": exists, "size": size, "mtime_utc": mtime}, **_mode_payload()}
 
 @app.get("/planner_debug_db", tags=["debug"])
 def planner_debug_db():
     """Return introspection of the local DB file the planner will use."""
-    return {"ok": True, "db": _db_info(), **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, "db": _db_info(), **_mode_payload()}
 
 # --- NEW: price appender -------------------------------------------------
 
@@ -372,7 +432,13 @@ def prices_append(
         except Exception:
             pass
 
-    return {"ok": True, "ts": ts, "inserted": inserted, "prices": prices, **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, "ts": ts, "inserted": inserted, "prices": prices, **_mode_payload()}
 
 # ------------------------------------------------------------------------
 # plan + paper apply
@@ -409,7 +475,13 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
         note = f"planner_fallback: {e.__class__.__name__}"
         if debug:
             note += f" | {e}"
-        return {
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_
             "account": "trading",
             "prices": prices or {},
             "balances": balances,
@@ -463,7 +535,13 @@ def apply_paper(
             msg = f"planner_fallback: {e.__class__.__name__}"
             if debug:
                 msg += f" | {e}"
-            return {
+            _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_
                 "ok": True,
                 "dry_run": True,
                 "actions_count": 0,
@@ -607,7 +685,13 @@ def snapshot_now(commit: int = 0, x_app_key: Optional[str] = Header(None), debug
             if _is_sunday(ts):
                 append_jsonl("snapshots/weekly.jsonl", rec)
 
-        return {"ok": True, "committed": bool(commit), "ts": ts, "nav": round(nav, 2)}
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, "committed": bool(commit), "ts": ts, "nav": round(nav, 2)}
     except Exception as e:
         if debug:
             raise HTTPException(status_code=500, detail=f"snapshot failed: {e.__class__.__name__}: {e}")
@@ -632,7 +716,13 @@ def _equity_series(days: int = 365) -> List[Dict[str, float]]:
 def _metrics_from_series(series: List[Dict[str, float]]) -> Dict[str, float]:
     if len(series) < 2:
         last = series[-1]["nav"] if series else None
-        return {
+        _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_
             "points": len(series),
             "last_nav": round(last, 2) if last is not None else None,
             "note": "Not enough data for statistics",
@@ -671,7 +761,13 @@ def _metrics_from_series(series: List[Dict[str, float]]) -> Dict[str, float]:
             if dd < maxdd:
                 maxdd = dd
 
-    return {
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_
         "points": len(series),
         "first_ts": ts0,
         "last_ts": tsN,
@@ -688,13 +784,25 @@ def _metrics_from_series(series: List[Dict[str, float]]) -> Dict[str, float]:
 @app.get("/equity_curve", tags=["analytics"])
 def equity_curve(days: int = 365):
     series = _equity_series(days=days)
-    return {"ok": True, "days": days, "series": series, **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, "days": days, "series": series, **_mode_payload()}
 
 @app.get("/metrics", tags=["analytics"])
 def metrics(days: int = 365):
     series = _equity_series(days=days)
     m = _metrics_from_series(series)
-    return {"ok": True, "days": days, "metrics": m, **_mode_payload()}
+    _ret_ = \1
+try:
+    _ = _ret_.setdefault("config", {})
+    _["band"] = _resolve_band_from_policy()
+except Exception:
+    pass
+return _ret_"ok": True, "days": days, "metrics": m, **_mode_payload()}
 
 # ------------------------------------------------------------------------
 # dev: run local
@@ -726,3 +834,39 @@ def prices_append_post(payload: dict = Body(default=None), x_app_key: Optional[s
 @app.post("/apply_paper", tags=["planner"])
 def apply_paper_post(commit: int = 0, refresh: int = 0, x_app_key: Optional[str] = Header(None)):
     return apply_paper(commit=commit, refresh=refresh, x_app_key=x_app_key, debug=0)
+# ---- band resolver (appended by ops) ----
+from pathlib import Path as _Path
+import json as _json
+try:
+    import yaml as _yaml  # optional
+except Exception:
+    _yaml = None
+
+def _resolve_band_from_policy(default_band: float = 0.01) -> float:
+    """
+    band = band_dynamic.base (clamped to min/max) OR bands_pct OR default_band
+    """
+    try:
+        base_dir = _Path(__file__).resolve().parents[1] / "configs"
+        pj = base_dir / "policy.rebalancer.json"
+        py = base_dir / "policy.rebalancer.yaml"
+        cfg = {}
+        if pj.exists():
+            cfg = _json.loads(pj.read_text(encoding="utf-8"))
+        elif py.exists() and _yaml:
+            cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
+
+        bd = (cfg.get("band_dynamic") or {})
+        base = bd.get("base", cfg.get("bands_pct", default_band))
+        mn = bd.get("min", base)
+        mx = bd.get("max", base)
+
+        b  = float(base)
+        mn = float(mn)
+        mx = float(mx)
+        return max(mn, min(b, mx))
+    except Exception:
+        return default_band
+# ---- end band resolver ----
+
+
