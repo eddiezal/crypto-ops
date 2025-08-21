@@ -314,3 +314,55 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
             }
         }
 
+@app.get("/snapshot_now", tags=["analytics"])
+def snapshot_now(commit: int = 1, x_app_key: Optional[str] = Header(None), debug: int = 0):
+    expected = os.getenv("APP_KEY")
+    if expected and x_app_key != expected:
+        raise HTTPException(status_code=401, detail="missing/invalid app key")
+
+    # Try planner path; fall back to last-saved/public
+    try:
+        plan_obj = compute_actions("trading")
+        prices = plan_obj.get("prices", {}) or {}
+        balances = read_json("state/balances.json", default=None) or plan_obj.get("balances", {}) or {}
+    except Exception:
+        prices = read_json("state/latest_prices.json", default=None)
+        if not prices:
+            targets = _load_targets_from_policy()
+            prices = _fetch_public_prices(_pairs_from_targets(targets))
+        balances = read_json("state/balances.json", default={}) or {}
+    balances.setdefault("USD", 0.0)
+
+    # NAV compute
+    def _nav(bal: Dict[str, float], px: Dict[str, float]) -> float:
+        nav = float(bal.get("USD", 0.0))
+        for k, q in bal.items():
+            if k.endswith("-USD") and k in px:
+                nav += float(q) * float(px[k])
+        return nav
+
+    nav = _nav(balances, prices or {})
+    ts  = int(time.time())
+
+    result = {
+        "ok": True,
+        "ts": ts,
+        "nav": round(nav, 2),
+        "commit": bool(commit),
+    }
+
+    if commit:
+        try:
+            append_jsonl("snapshots/daily.jsonl", {
+                "ts": ts,
+                "nav": round(nav, 2),
+                "turnover_usd": 0.0,
+                "actions_count": 0,
+                "source": "snapshot_now",
+                "revision": os.getenv("K_REVISION", "n/a"),
+                "commit": True,
+            })
+        except Exception as e:
+            if debug:
+                raise HTTPException(status_code=500, detail=f"snapshot write failed: {e.__class__.__name__}: {e}")
+    return result
