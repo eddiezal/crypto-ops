@@ -91,3 +91,49 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("service.main:app", host="127.0.0.1", port=8080, reload=True)
+
+from pathlib import Path as _Path
+try:
+    import yaml as _yaml
+except Exception:
+    _yaml = None
+
+def _resolve_band_from_policy(default_band: float = 0.01) -> float:
+    try:
+        base_dir = _Path(__file__).resolve().parents[1] / "configs"
+        pj = base_dir / "policy.rebalancer.json"
+        py = base_dir / "policy.rebalancer.yaml"
+        cfg = {}
+        if pj.exists():
+            cfg = _json.loads(pj.read_text(encoding="utf-8"))
+        elif py.exists() and _yaml:
+            cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
+        bd = (cfg.get("band_dynamic") or {})
+        base = bd.get("base", cfg.get("bands_pct", default_band))
+        mn = bd.get("min", base); mx = bd.get("max", base)
+        b  = float(base); mn = float(mn); mx = float(mx)
+        return max(mn, min(b, mx))
+    except Exception:
+        return default_band
+
+@app.get("/plan_band", tags=["planner"])
+def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
+    try:
+        _ensure_ledger_db(force=bool(refresh))
+    except Exception:
+        pass
+    overrides: Dict[str, float] = {}
+    for kv in (pair or []):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            try:
+                overrides[k.strip()] = float(v)
+            except Exception:
+                pass
+    result = compute_actions("trading", override_prices=overrides or None) if True else {}
+    try:
+        _ = result.setdefault("config", {})
+        _["band"] = _resolve_band_from_policy()
+    except Exception:
+        pass
+    return result
