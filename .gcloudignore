@@ -1,21 +1,8 @@
-# .gcloudignore reduces what gcloud uploads on builds
-.git/
-.gitignore
-.gcloudignore
-
 .venv/
+.git/
 __pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-
-plans/
-scratch/
-data/*.db
+*.pyc
+dist/
+build/
 *.log
-*.tmp
-*.swp
-
-.env
-.env.*
+Dockerfile
