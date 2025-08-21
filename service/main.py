@@ -217,3 +217,64 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
 
 
 
+from datetime import datetime
+
+@app.get("/dashboard", include_in_schema=False, tags=["meta"])
+def dashboard():
+    # health/meta
+    meta = _mode_payload()
+    # policy band
+    band = _resolve_band_from_policy()
+    # last NAV snapshot (optional)
+    nav_val = "n/a"
+    nav_ts  = "n/a"
+    try:
+        # read last line from snapshots/daily.jsonl if available
+        # (use state/ path or local snapshots; prefer state/)
+        recs = read_json("snapshots/daily.jsonl", default=None)
+        if isinstance(recs, list) and recs:
+            last = recs[-1]
+            nav_val = last.get("nav", "n/a")
+            ts_i    = last.get("ts", None)
+            if ts_i:
+                nav_ts = datetime.utcfromtimestamp(int(ts_i)).strftime("%Y-%m-%d %H:%M:%SZ")
+    except Exception:
+        pass
+
+    html = f"""
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CryptoOps Dashboard</title>
+<style>
+ body {{ font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial; margin: 32px; color:#111 }}
+ .card {{ padding:16px; border:1px solid #ddd; border-radius:12px; margin-bottom:16px; }}
+ .title {{ font-size:22px; font-weight:700; margin-bottom:8px; }}
+ .kv {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+ .ok {{ color:#008a00; }} .warn {{ color:#b58900; }} .muted {{ color:#666; }}
+ a {{ color:#0366d6; text-decoration:none }}
+</style></head><body>
+<h1>CryptoOps — Read-only Dashboard</h1>
+
+<div class="card">
+  <div class="title">System</div>
+  <div class="kv">Mode: <b>{meta.get("trading_mode","")}</b></div>
+  <div class="kv">Environment: <b>{meta.get("coinbase_env","")}</b></div>
+  <div class="kv">Revision: <span class="muted">{meta.get("revision","n/a")}</span></div>
+  <div class="kv">Config Hash: <span class="muted">{meta.get("config_hash","n/a")}</span></div>
+</div>
+
+<div class="card">
+  <div class="title">Policy</div>
+  <div class="kv">Band: <b>{band:.3f}</b></div>
+</div>
+
+<div class="card">
+  <div class="title">Analytics</div>
+  <div class="kv">Last NAV: <b>{nav_val}</b></div>
+  <div class="kv">As of: <span class="muted">{nav_ts}</span></div>
+</div>
+
+<p class="muted">Read-only UI. For actions, use your PowerShell / scripts.</p>
+</body></html>
+"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html, status_code=200)
