@@ -154,3 +154,4 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("service.main:app", host="127.0.0.1", port=8080, reload=True)
+
