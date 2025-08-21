@@ -186,7 +186,7 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
     try:
         result = compute_actions("trading", override_prices=overrides or None)
         cfg = result.setdefault("config", {})
-        cfg.setdefault("band", _resolve_band_from_policy())
+        cfg["band"] = _resolve_band_from_policy()
         return result
     except Exception as e:
         prices = read_json("state/latest_prices.json", default=None)
@@ -247,7 +247,7 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
     try:
         result = compute_actions("trading", override_prices=overrides or None)
         cfg = result.setdefault("config", {})
-        cfg.setdefault("band", _resolve_band_from_policy())
+        cfg["band"] = _resolve_band_from_policy()
         return result
     except Exception as e:
         prices = read_json("state/latest_prices.json", default=None)
@@ -290,7 +290,7 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
     try:
         result = compute_actions("trading", override_prices=overrides or None)
         cfg = result.setdefault("config", {})
-        cfg.setdefault("band", _resolve_band_from_policy())
+        cfg["band"] = _resolve_band_from_policy()
         return result
     except Exception as e:
         prices = read_json("state/latest_prices.json", default=None)
@@ -461,4 +461,5 @@ def _resolve_band_from_policy(default_band: float = 0.01) -> float:
         return max(mn, min(b, mx))
     except Exception:
         return default_band
+
 
