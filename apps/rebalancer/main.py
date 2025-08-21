@@ -69,3 +69,43 @@ def compute_actions(account: str, override_prices: Optional[Dict[str, float]] = 
         }
     }
 
+def _band_from_policy(default_band: float = 0.01) -> float:
+    """
+    Resolve the rebalancing band from /configs/policy.rebalancer.{json|yaml}.
+    Supports:
+      - band_dynamic: { base, min, max }
+      - bands_pct: <float> (legacy)
+    """
+    try:
+        from pathlib import Path
+        import json as _json
+
+        # /workspace/apps/rebalancer/main.py  -> parents[2] == /workspace
+        root = Path(__file__).resolve().parents[2]
+        cfg_dir = root / "configs"
+        pj = cfg_dir / "policy.rebalancer.json"
+        py = cfg_dir / "policy.rebalancer.yaml"
+
+        cfg = {}
+        if pj.exists():
+            cfg = _json.loads(pj.read_text(encoding="utf-8"))
+        elif py.exists():
+            try:
+                import yaml as _yaml
+                cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
+            except Exception:
+                cfg = {}
+
+        bd = cfg.get("band_dynamic") or {}
+        if bd:
+            base = float(bd.get("base", default_band))
+            mn   = float(bd.get("min", base))
+            mx   = float(bd.get("max", base))
+            return max(mn, min(base, mx))
+
+        if "bands_pct" in cfg:
+            return float(cfg["bands_pct"])
+
+        return default_band
+    except Exception:
+        return default_band
