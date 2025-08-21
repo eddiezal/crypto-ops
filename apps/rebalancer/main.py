@@ -1,47 +1,70 @@
-"""Rebalancer main module"""
-import json
-from pathlib import Path
+"""Rebalancer with hardcoded sandbox data"""
 from typing import Dict, Any, Optional
 
+# Hardcoded sandbox data
+SANDBOX_BALANCES = {
+    "USD": 2683.022850014763,
+    "BTC": 1.703531964692791,
+    "ETH": 19.972825658393063
+}
+
+SANDBOX_PRICES = {
+    "BTC-USD": 113645.055,
+    "ETH-USD": 4288.045
+}
+
 def compute_actions(account: str, override_prices: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-    """Compute rebalancing actions"""
+    """Compute rebalancing actions with sandbox data"""
     
-    # Try to read balances from state file
-    balances = {}
-    try:
-        balance_file = Path("state/balances.json")
-        if balance_file.exists():
-            with open(balance_file) as f:
-                balances = json.load(f)
-    except:
-        balances = {"USD": 0.0, "BTC": 0.0, "ETH": 0.0}
+    prices = override_prices if override_prices else SANDBOX_PRICES
+    balances = SANDBOX_BALANCES
     
-    # Try to read prices
-    prices = override_prices or {}
-    if not prices:
-        try:
-            price_file = Path("state/latest_prices.json")
-            if price_file.exists():
-                with open(price_file) as f:
-                    prices = json.load(f)
-        except:
-            prices = {"BTC-USD": 114175.735, "ETH-USD": 4340.94}
+    # Calculate current allocations
+    btc_value = balances["BTC"] * prices.get("BTC-USD", 113645)
+    eth_value = balances["ETH"] * prices.get("ETH-USD", 4288)
+    usd_value = balances["USD"]
+    total_value = btc_value + eth_value + usd_value
     
-    # Read config
-    config = {"band": 0.05}
-    try:
-        config_file = Path("configs/policy.rebalancer.json")
-        if config_file.exists():
-            with open(config_file) as f:
-                policy = json.load(f)
-                config["band"] = policy.get("bands_pct", 0.05)
-    except:
-        pass
+    # Target allocations
+    targets = {
+        "BTC": 0.65,  # 65%
+        "ETH": 0.30,  # 30%
+        "USD": 0.05   # 5%
+    }
+    
+    # Calculate if rebalancing needed
+    actions = []
+    band = 0.05  # 5% band
+    
+    btc_current_pct = btc_value / total_value
+    eth_current_pct = eth_value / total_value
+    
+    if abs(btc_current_pct - targets["BTC"]) > band:
+        actions.append({
+            "type": "rebalance",
+            "asset": "BTC",
+            "current_pct": round(btc_current_pct * 100, 2),
+            "target_pct": targets["BTC"] * 100
+        })
+    
+    if abs(eth_current_pct - targets["ETH"]) > band:
+        actions.append({
+            "type": "rebalance", 
+            "asset": "ETH",
+            "current_pct": round(eth_current_pct * 100, 2),
+            "target_pct": targets["ETH"] * 100
+        })
     
     return {
         "account": account,
         "prices": prices,
         "balances": balances,
-        "actions": [],
-        "config": config
+        "actions": actions,
+        "config": {"band": band},
+        "total_value": round(total_value, 2),
+        "allocations": {
+            "BTC": round(btc_current_pct * 100, 2),
+            "ETH": round(eth_current_pct * 100, 2),
+            "USD": round((usd_value / total_value) * 100, 2)
+        }
     }
