@@ -278,3 +278,17 @@ def dashboard():
 """
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html, status_code=200)
+from fastapi.responses import PlainTextResponse
+
+@app.get("/metrics", include_in_schema=False, tags=["meta"])
+def metrics():
+    # simple, authenticated metrics (no secrets)
+    band = _resolve_band_from_policy()
+    meta = _mode_payload()
+    lines = [
+        "cryptoops_up 1",
+        f'cryptoops_band {band}',
+        f'cryptoops_revision{{rev="{meta.get("revision","n/a")}"}} 1',
+        f'cryptoops_env{{mode="{meta.get("trading_mode","")}",exchange="{meta.get("coinbase_env","")}"}} 1',
+    ]
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
