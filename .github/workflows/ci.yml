@@ -1,0 +1,18 @@
+name: CI
+on:
+  push: { branches: [ main ] }
+  pull_request: { branches: [ main ] }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt pytest
+      - name: Smoke tests (requires RUN_URL + RUN_TOKEN + APP_KEY as secrets)
+        env:
+          RUN_URL: ${{ secrets.RUN_URL }}
+          RUN_TOKEN: ${{ secrets.RUN_TOKEN }}
+          APP_KEY: ${{ secrets.APP_KEY }}
+        run: pytest -q
