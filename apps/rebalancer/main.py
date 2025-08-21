@@ -3,7 +3,7 @@ import os, json, sqlite3
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
-from apps.infra.state_gcs import read_json  # balances come from GCS state
+from apps.infra.state import read_json  # balances come from GCS state
 
 # ---------- policy/targets helpers ----------
 
@@ -155,3 +155,4 @@ def compute_actions(account: str, override_prices: Optional[Dict[str, float]] = 
         "actions": actions,
         "config": {"band": band},
     }
+
