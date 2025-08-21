@@ -68,3 +68,4 @@ def compute_actions(account: str, override_prices: Optional[Dict[str, float]] = 
             "USD": round((usd_value / total_value) * 100, 2)
         }
     }
+
