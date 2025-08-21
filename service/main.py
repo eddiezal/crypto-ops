@@ -1,4 +1,3 @@
-# service/main.py — minimal, stable (health + safe /plan + /plan_band)
 import os, time, hashlib, subprocess, uuid, json as _json
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -11,6 +10,31 @@ from apps.rebalancer.main import compute_actions
 from apps.infra.state import read_json, write_json, append_jsonl
 
 app = FastAPI(title="CryptoOps Planner", version="1.0")
+
+# ---- SAFETY TRIPWIRES ----
+REQUIRED_TRADING_MODE = "paper"
+REQUIRED_EXCHANGE_ENV = "sandbox"
+
+def _assert_safe_env():
+    tm = os.getenv("TRADING_MODE", "")
+    ex = os.getenv("COINBASE_ENV", "")
+    if tm != REQUIRED_TRADING_MODE or ex != REQUIRED_EXCHANGE_ENV:
+        raise RuntimeError(f"Unsafe env: TRADING_MODE={tm!r} COINBASE_ENV={ex!r}")
+
+def _refuse_live_creds():
+    # Adjust env names if yours differ; tripwire refuses prod secrets entirely.
+    live_markers = [
+        os.getenv("COINBASE_API_KEY_PROD"),
+        os.getenv("COINBASE_API_SECRET_PROD"),
+    ]
+    if any(live_markers):
+        raise RuntimeError("Live exchange credentials detected. Refusing to start.")
+
+@app.on_event("startup")
+def _safety_on_startup():
+    _refuse_live_creds()
+    _assert_safe_env()
+# ---- END TRIPWIRES ----
 
 # --------------------- helpers ---------------------
 def _git_commit() -> str:
@@ -131,8 +155,21 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             prices = _fetch_public_prices(_pairs_from_targets(targets))
         balances = read_json("state/balances.json", default={}) or {}
         note = f"planner_fallback: {e.__class__.__name__}" + (f" | {e}" if debug else "")
-        return {"account": "trading", "prices": prices or {}, "balances": balances,
-                "actions": [], "note": note, "config": {"band": None}}
+        return {
+            "account": "trading",
+            "prices": prices or {},
+            "balances": balances,
+            "actions": [],
+            "note": note,
+            "config": {"band": None},
+            "safety": {
+                "mode": os.getenv("TRADING_MODE", ""),
+                "exchange": os.getenv("COINBASE_ENV", ""),
+                "fallback": True,
+                "fallback_source": "state/balances.json",
+                "banner": "FAKE / SANDBOX STATE — NOT FROM COINBASE ACCOUNT"
+            }
+        }
 
 @app.get("/plan_band", tags=["planner"])
 def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
@@ -146,12 +183,47 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
             try: overrides[k.strip()] = float(v)
             except Exception: pass
 
-    result = compute_actions("trading", override_prices=overrides or None)
-    _ = result.setdefault("config", {})
-    _.setdefault("band", _resolve_band_from_policy())
-    return result
+    try:
+        result = compute_actions("trading", override_prices=overrides or None)
+        cfg = result.setdefault("config", {})
+        cfg.setdefault("band", _resolve_band_from_policy())
+        return result
+    except Exception as e:
+        prices = read_json("state/latest_prices.json", default=None)
+        if not prices:
+            targets = _load_targets_from_policy()
+            prices = _fetch_public_prices(_pairs_from_targets(targets))
+        balances = read_json("state/balances.json", default={}) or {}
+        note = f"planner_fallback: {e.__class__.__name__}" + (f" | {e}" if debug else "")
+        return {
+            "account": "trading",
+            "prices": prices or {},
+            "balances": balances,
+            "actions": [],
+            "note": note,
+            "config": {"band": _resolve_band_from_policy()},
+            "safety": {
+                "mode": os.getenv("TRADING_MODE", ""),
+                "exchange": os.getenv("COINBASE_ENV", ""),
+                "fallback": True,
+                "fallback_source": "state/balances.json",
+                "banner": "FAKE / SANDBOX STATE — NOT FROM COINBASE ACCOUNT"
+            }
+        }
+
+# (OPTIONAL) enforce safe env on mutating routes too:
+def _auth_guard(x_app_key: Optional[str]):
+    expected = os.getenv("APP_KEY")
+    if expected and x_app_key != expected:
+        raise HTTPException(status_code=401, detail="missing/invalid app key")
+    _assert_safe_env()
+
+# Example usage:
+# @app.get("/snapshot_now")
+# def snapshot_now(..., x_app_key: Optional[str] = Header(None)):
+#     _auth_guard(x_app_key)
+#     ...
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("service.main:app", host="127.0.0.1", port=8080, reload=True)
-
