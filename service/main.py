@@ -161,7 +161,7 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             "balances": balances,
             "actions": [],
             "note": note,
-            "config": {"band": None},
+            "config": {"band": _resolve_band_from_policy()},
             "safety": {
                 "mode": os.getenv("TRADING_MODE", ""),
                 "exchange": os.getenv("COINBASE_ENV", ""),
@@ -366,5 +366,6 @@ def snapshot_now(commit: int = 1, x_app_key: Optional[str] = Header(None), debug
             if debug:
                 raise HTTPException(status_code=500, detail=f"snapshot write failed: {e.__class__.__name__}: {e}")
     return result
+
 
 
