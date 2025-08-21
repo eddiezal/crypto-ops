@@ -1,0 +1,32 @@
+{
+  "run_id": "60469d0e-c7ec-41ba-a588-30e89e80a245",
+  "reason": "CLI:paper",
+  "state": "LOCKED",
+  "started_at": 1755736161.0683277,
+  "phases": {
+    "FREEZE": {
+      "start": 1755736161.0683277,
+      "end": 1755736161.0683277,
+      "ok": true,
+      "error": null
+    },
+    "CANCEL": {
+      "start": 1755736161.0683277,
+      "end": 1755736161.5776696,
+      "ok": true,
+      "error": null
+    },
+    "FLATTEN": {
+      "start": 1755736161.5776696,
+      "end": 1755736162.0914783,
+      "ok": true,
+      "error": null
+    },
+    "VERIFY": {
+      "start": 1755736162.0914783,
+      "end": 1755736162.2045343,
+      "ok": true,
+      "error": null
+    }
+  }
+}

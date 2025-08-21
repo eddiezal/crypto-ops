@@ -1,0 +1,32 @@
+{
+  "run_id": "e2ad87ed-ba10-4e0d-b33b-825f993671f2",
+  "reason": "TEST",
+  "state": "LOCKED",
+  "started_at": 1755736638.0050747,
+  "phases": {
+    "FREEZE": {
+      "start": 1755736638.0050747,
+      "end": 1755736638.0050747,
+      "ok": true,
+      "error": null
+    },
+    "CANCEL": {
+      "start": 1755736638.0050747,
+      "end": 1755736638.5189404,
+      "ok": true,
+      "error": null
+    },
+    "FLATTEN": {
+      "start": 1755736638.5189404,
+      "end": 1755736639.0315533,
+      "ok": true,
+      "error": null
+    },
+    "VERIFY": {
+      "start": 1755736639.0315533,
+      "end": 1755736639.1434534,
+      "ok": true,
+      "error": null
+    }
+  }
+}

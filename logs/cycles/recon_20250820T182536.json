@@ -1,0 +1,39 @@
+{
+  "positions_ok": true,
+  "open_orders_ok": true,
+  "cash_ok": true,
+  "pnl_ok": true,
+  "drift_threshold_usd": 19.992001587495945,
+  "drift_usd_by_asset": {
+    "BTC": 0.0,
+    "ETH": 0.0,
+    "USD": 0.0
+  },
+  "cash_delta_usd": -7.040216587483883e-08,
+  "cash_flow_usd": 0.0,
+  "fees_sum_usd_since_last": 0.0,
+  "price_effect_usd": 0.0,
+  "nav_delta_usd": 4.797038855031133e-07,
+  "expected_nav_delta_usd": 0.0,
+  "equity_usd": 99960.00793747972,
+  "snapshot_written": {
+    "ts": 1755739537,
+    "nav_usd": 99960.007937,
+    "usd_balance": 149949.60591,
+    "inv_usd": -49989.597972,
+    "balances": {
+      "USD": 149949.6059099296,
+      "BTC": -0.4621850353072093,
+      "ETH": -8.903398341606938
+    },
+    "prices": {
+      "BTC-USD": 60000.0,
+      "ETH-USD": 2500.0
+    },
+    "fee_sum_since_last": 0.0,
+    "fills_count_since_last": 0,
+    "equity_usd": 99960.007937,
+    "drift_threshold_usd": 19.992002
+  }
+}
+

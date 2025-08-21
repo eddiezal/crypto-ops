@@ -1,0 +1,16 @@
+{
+  "applied": 2,
+  "scale": 1.0,
+  "fees_total_usd": 5.02,
+  "turned_added_usd": 6272.08,
+  "turned_today_usd": 6272.08,
+  "equity_usd": 154832.02,
+  "daily_cap_usd": 77416.01,
+  "cap_remaining_usd_before": 77416.01,
+  "balances": {
+    "USD": 2683.022850014763,
+    "BTC": 1.703531964692791,
+    "ETH": 19.972825658393063
+  }
+}
+

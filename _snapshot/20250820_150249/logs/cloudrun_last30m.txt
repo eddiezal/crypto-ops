@@ -1,0 +1,279 @@
+2025-08-20T22:05:01.197237Z			INFO:     169.254.169.126:47936 - "POST /apply_paper?commit=1&refresh=1 HTTP/1.1" 503 Service Unavailable
+2025-08-20T22:05:01.177737Z	POST	503	
+2025-08-20T22:00:56Z			
+2025-08-20T22:00:56Z			
+2025-08-20T22:00:51Z			
+2025-08-20T22:00:01.279477Z			Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "/usr/local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 75, in app
+    response = await f(request)
+  File "/usr/local/lib/python3.10/site-packages/fastapi/routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "/usr/local/lib/python3.10/site-packages/fastapi/routing.py", line 215, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+  File "/usr/local/lib/python3.10/site-packages/starlette/concurrency.py", line 38, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+  File "/usr/local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+  File "/usr/local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2476, in run_sync_in_worker_thread
+    return await future
+  File "/usr/local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+  File "/app/service/main.py", line 404, in plan
+    prices = read_json("state/latest_prices.json", default=None)
+  File "/app/apps/infra/state_gcs.py", line 26, in read_json
+    t = read_text(path)
+  File "/app/apps/infra/state_gcs.py", line 18, in read_text
+    b = _bucket()
+  File "/app/apps/infra/state_gcs.py", line 14, in _bucket
+    raise RuntimeError("STATE_BUCKET env var not set")
+RuntimeError: STATE_BUCKET env var not set
+2025-08-20T22:00:01.279433Z			During handling of the above exception, another exception occurred:
+2025-08-20T22:00:01.279426Z			Traceback (most recent call last):
+  File "/app/service/main.py", line 401, in plan
+    return compute_actions("trading", override_prices=overrides or None)
+  File "/app/apps/rebalancer/main.py", line 141, in compute_actions
+    prices = (override_prices or {}).copy() if override_prices else _latest_prices_from_db(pairs)
+  File "/app/apps/rebalancer/main.py", line 60, in _latest_prices_from_db
+    with _conn() as con:
+  File "/app/apps/rebalancer/main.py", line 46, in _conn
+    raise RuntimeError(f"LEDGER_DB not found at {db}")
+RuntimeError: LEDGER_DB not found at /tmp/ledger.db
+2025-08-20T22:00:01.279390Z			ERROR:    Exception in ASGI application
+2025-08-20T22:00:01.276970Z			INFO:     169.254.169.126:49166 - "GET /plan?refresh=1 HTTP/1.1" 500 Internal Server Error
+2025-08-20T22:00:01.241282Z	GET	500	
+2025-08-20T21:55:26.354973Z			INFO:     Finished server process [1]
+2025-08-20T21:55:26.354828Z			INFO:     Application shutdown complete.
+2025-08-20T21:55:26.354564Z			INFO:     Waiting for application shutdown.
+2025-08-20T21:55:26.253190Z			INFO:     Shutting down
+2025-08-20T21:55:01.119443Z			INFO:     169.254.169.126:25968 - "POST /apply_paper?commit=1&refresh=1 HTTP/1.1" 503 Service Unavailable
+2025-08-20T21:55:01.097810Z	POST	503	
+2025-08-20T21:53:25.315697Z			INFO:     169.254.169.126:48568 - "GET /planner_force_dbfetch HTTP/1.1" 400 Bad Request
+2025-08-20T21:53:25.311133Z	GET	400	
+2025-08-20T21:53:24.882760Z			INFO:     169.254.169.126:48552 - "POST /apply_paper?commit=1&refresh=1 HTTP/1.1" 503 Service Unavailable
+2025-08-20T21:53:24.876994Z	POST	503	
+2025-08-20T21:53:24.572746Z			Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "/usr/local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 75, in app
+    response = await f(request)
+  File "/usr/local/lib/python3.10/site-packages/fastapi/routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "/usr/local/lib/python3.10/site-packages/fastapi/routing.py", line 215, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+  File "/usr/local/lib/python3.10/site-packages/starlette/concurrency.py", line 38, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+  File "/usr/local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+  File "/usr/local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2476, in run_sync_in_worker_thread
+    return await future
+  File "/usr/local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+  File "/app/service/main.py", line 404, in plan
+    prices = read_json("state/latest_prices.json", default=None)
+  File "/app/apps/infra/state_gcs.py", line 26, in read_json
+    t = read_text(path)
+  File "/app/apps/infra/state_gcs.py", line 18, in read_text
+    b = _bucket()
+  File "/app/apps/infra/state_gcs.py", line 14, in _bucket
+    raise RuntimeError("STATE_BUCKET env var not set")
+RuntimeError: STATE_BUCKET env var not set
+2025-08-20T21:53:24.572718Z			During handling of the above exception, another exception occurred:
+2025-08-20T21:53:24.572713Z			Traceback (most recent call last):
+  File "/app/service/main.py", line 401, in plan
+    return compute_actions("trading", override_prices=overrides or None)
+  File "/app/apps/rebalancer/main.py", line 141, in compute_actions
+    prices = (override_prices or {}).copy() if override_prices else _latest_prices_from_db(pairs)
+  File "/app/apps/rebalancer/main.py", line 60, in _latest_prices_from_db
+    with _conn() as con:
+  File "/app/apps/rebalancer/main.py", line 46, in _conn
+    raise RuntimeError(f"LEDGER_DB not found at {db}")
+RuntimeError: LEDGER_DB not found at /tmp/ledger.db
+2025-08-20T21:53:24.572675Z			ERROR:    Exception in ASGI application
+2025-08-20T21:53:24.547917Z			INFO:     169.254.169.126:48536 - "GET /plan?refresh=1&commit=1 HTTP/1.1" 500 Internal Server Error
+2025-08-20T21:53:24.536630Z	GET	500	
+2025-08-20T21:53:06.031127Z			INFO:     169.254.169.126:11618 - "GET /planner_debug_db HTTP/1.1" 200 OK
+2025-08-20T21:53:06.025833Z	GET	200	
+2025-08-20T21:53:05.666766Z			INFO:     169.254.169.126:11616 - "GET /readyz HTTP/1.1" 200 OK
+2025-08-20T21:53:05.661314Z	GET	200	
+2025-08-20T21:53:05.334960Z			INFO:     169.254.169.126:11610 - "GET /health HTTP/1.1" 200 OK
+2025-08-20T21:53:05.269440Z	GET	200	
+2025-08-20T21:51:28.054755Z			Default STARTUP TCP probe succeeded after 1 attempt for container "cryptoops-planner-1" on port 8080.
+2025-08-20T21:51:28.054392Z			INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+2025-08-20T21:51:28.052237Z			INFO:     Application startup complete.
+2025-08-20T21:51:28.051906Z			INFO:     Waiting for application startup.
+2025-08-20T21:51:28.051854Z			INFO:     Started server process [1]
+2025-08-20T21:51:23.221795Z			Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+2025-08-20T21:51:23.156316Z			
+2025-08-20T21:51:21.807060Z			
+2025-08-20T21:51:21.732957Z			Default STARTUP TCP probe succeeded after 1 attempt for container "cryptoops-planner-1" on port 8080.
+2025-08-20T21:51:21.725813Z			INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+2025-08-20T21:51:21.723513Z			INFO:     Application startup complete.
+2025-08-20T21:51:21.723158Z			INFO:     Waiting for application startup.
+2025-08-20T21:51:21.723094Z			INFO:     Started server process [1]
+2025-08-20T21:51:17.492554Z			Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2025-08-20T21:51:14.853001Z			
+2025-08-20T21:50:19.039283Z			INFO:     169.254.169.126:53430 - "POST /apply_paper?commit=1&refresh=1 HTTP/1.1" 200 OK
+2025-08-20T21:50:17.923102Z	POST	200	
+2025-08-20T21:50:16.140874Z			INFO:     169.254.169.126:53424 - "GET /plan?refresh=1 HTTP/1.1" 200 OK
+2025-08-20T21:50:15.858180Z	GET	200	
+2025-08-20T21:50:02.091198Z			INFO:     169.254.169.126:8780 - "GET /plan?refresh=1 HTTP/1.1" 200 OK
+2025-08-20T21:50:01.830471Z	GET	200	
+2025-08-20T21:49:57.585743Z			INFO:     Finished server process [1]
+2025-08-20T21:49:57.585603Z			INFO:     Application shutdown complete.
+2025-08-20T21:49:57.585350Z			INFO:     Waiting for application shutdown.
+2025-08-20T21:49:57.483961Z			INFO:     Shutting down
+2025-08-20T21:49:14.327788Z			INFO:     169.254.169.126:27616 - "POST /apply_paper?commit=1&refresh=1 HTTP/1.1" 200 OK
+2025-08-20T21:49:12.860491Z	POST	200	
+2025-08-20T21:49:12.260084Z			INFO:     169.254.169.126:27600 - "GET /plan?refresh=1&commit=1 HTTP/1.1" 200 OK
+2025-08-20T21:49:11.903305Z	GET	200	
+2025-08-20T21:49:11.478989Z			INFO:     169.254.169.126:27584 - "GET /planner_debug_db HTTP/1.1" 200 OK
+2025-08-20T21:49:11.464218Z	GET	200	
+2025-08-20T21:49:10.980912Z			INFO:     169.254.169.126:27582 - "GET /planner_force_dbfetch HTTP/1.1" 200 OK
+2025-08-20T21:49:10.696001Z	GET	200	
+2025-08-20T21:48:55.204685Z			
+2025-08-20T21:48:53.906376Z			
+2025-08-20T21:48:53.817495Z			Default STARTUP TCP probe succeeded after 1 attempt for container "cryptoops-planner-1" on port 8080.
+2025-08-20T21:48:53.817026Z			INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+2025-08-20T21:48:53.815234Z			INFO:     Application startup complete.
+2025-08-20T21:48:53.473670Z			INFO:     Waiting for application startup.
+2025-08-20T21:48:53.473639Z			INFO:     Started server process [1]
+2025-08-20T21:48:48.221791Z			Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2025-08-20T21:48:39.215250Z			
+2025-08-20T21:43:59Z			
+2025-08-20T21:43:59Z			
+2025-08-20T21:43:50Z			
+2025-08-20T21:41:23.502426Z			INFO:     169.254.169.126:23926 - "GET /planner_debug_db HTTP/1.1" 200 OK
+2025-08-20T21:41:23.485779Z	GET	200	
+2025-08-20T21:40:58Z			
+2025-08-20T21:40:54Z			
+2025-08-20T21:40:54Z			
+2025-08-20T21:40:01.768223Z			Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "/usr/local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 78, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.10/site-packages/starlette/routing.py", line 75, in app
+    response = await f(request)
+  File "/usr/local/lib/python3.10/site-packages/fastapi/routing.py", line 302, in app
+    raw_response = await run_endpoint_function(
+  File "/usr/local/lib/python3.10/site-packages/fastapi/routing.py", line 215, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+  File "/usr/local/lib/python3.10/site-packages/starlette/concurrency.py", line 38, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+  File "/usr/local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+  File "/usr/local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2476, in run_sync_in_worker_thread
+    return await future
+  File "/usr/local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
+    result = context.run(func, *args)
+  File "/app/service/main.py", line 404, in plan
+    prices = read_json("state/latest_prices.json", default=None)
+  File "/app/apps/infra/state_gcs.py", line 26, in read_json
+    t = read_text(path)
+  File "/app/apps/infra/state_gcs.py", line 18, in read_text
+    b = _bucket()
+  File "/app/apps/infra/state_gcs.py", line 14, in _bucket
+    raise RuntimeError("STATE_BUCKET env var not set")
+RuntimeError: STATE_BUCKET env var not set
+2025-08-20T21:40:01.768166Z			During handling of the above exception, another exception occurred:
+2025-08-20T21:40:01.768158Z			Traceback (most recent call last):
+  File "/app/service/main.py", line 401, in plan
+    return compute_actions("trading", override_prices=overrides or None)
+  File "/app/apps/rebalancer/main.py", line 141, in compute_actions
+    prices = (override_prices or {}).copy() if override_prices else _latest_prices_from_db(pairs)
+  File "/app/apps/rebalancer/main.py", line 60, in _latest_prices_from_db
+    with _conn() as con:
+  File "/app/apps/rebalancer/main.py", line 46, in _conn
+    raise RuntimeError(f"LEDGER_DB not found at {db}")
+RuntimeError: LEDGER_DB not found at /tmp/ledger.db
+2025-08-20T21:40:01.768113Z			ERROR:    Exception in ASGI application
+2025-08-20T21:40:01.765668Z			INFO:     169.254.169.126:18712 - "GET /plan?refresh=1 HTTP/1.1" 500 Internal Server Error
+2025-08-20T21:40:01.745914Z	GET	500	
+2025-08-20T21:37:54.210945Z			INFO:     Finished server process [1]
+2025-08-20T21:37:54.210834Z			INFO:     Application shutdown complete.
+2025-08-20T21:37:54.210648Z			INFO:     Waiting for application shutdown.
+2025-08-20T21:37:54.109364Z			INFO:     Shutting down

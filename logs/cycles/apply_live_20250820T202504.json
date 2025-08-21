@@ -1,0 +1,46 @@
+{
+  "plan_id": "c5536057-43d3-4a41-8917-f5135ddbb41e",
+  "dry_run": false,
+  "sim_mode": false,
+  "applied_count": 2,
+  "per_order_usd_cap": 387.07,
+  "scale": 1.0,
+  "turned_added_usd": 774.14,
+  "turned_today_usd": 8594.49,
+  "daily_cap_usd": 77413.5,
+  "orders": [
+    {
+      "client_order_id": "267bb7eea7d321d6",
+      "symbol": "BTC-USD",
+      "side": "buy",
+      "usd": 387.07,
+      "qty": 0.0064511252,
+      "price_hint": 60000.0
+    },
+    {
+      "client_order_id": "df46fdd74dacde50",
+      "symbol": "ETH-USD",
+      "side": "buy",
+      "usd": 387.07,
+      "qty": 0.1548270049,
+      "price_hint": 2500.0
+    }
+  ],
+  "acks": [
+    {
+      "client_order_id": "267bb7eea7d321d6",
+      "resp": {
+        "status_code": 401,
+        "text": "Unauthorized\n"
+      }
+    },
+    {
+      "client_order_id": "df46fdd74dacde50",
+      "resp": {
+        "status_code": 401,
+        "text": "Unauthorized\n"
+      }
+    }
+  ]
+}
+

@@ -1,4 +1,17 @@
 {
-  "targets_trading": { "BTC": 0.50, "ETH": 0.50 },
-  "band_dynamic": { "base": 0.05, "min": 0.02, "max": 0.08 }
+  "bands_pct": 0.05,
+  "targets_trading": {
+    "USD": 0.05,
+    "ETH": 0.3,
+    "BTC": 0.65
+  },
+  "targets": {
+    "BTC": 0.5,
+    "ETH": 0.5
+  },
+  "band_dynamic": {
+    "base": 0.05,
+    "min": 0.01,
+    "max": 0.1
+  }
 }
