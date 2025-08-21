@@ -402,3 +402,39 @@ def band_debug():
         return status
     except Exception as e:
         return {"error": f"{e.__class__.__name__}: {e}"}
+@app.get("/band_debug", tags=["debug"])
+def band_debug():
+    try:
+        base_dir = Path(__file__).resolve().parents[1] / "configs"
+        pj = base_dir / "policy.rebalancer.json"
+        py = base_dir / "policy.rebalancer.yaml"
+
+        status = {
+            "json_path": str(pj),
+            "yaml_path": str(py),
+            "json_exists": pj.exists(),
+            "yaml_exists": py.exists(),
+            "config_hash": _config_hash(),
+        }
+
+        cfg = {}
+        raw = ""
+        if pj.exists():
+            raw = pj.read_text(encoding="utf-8")
+            cfg = _json.loads(raw)
+        elif py.exists():
+            try:
+                import yaml as _yaml
+                raw = py.read_text(encoding="utf-8")
+                cfg = _yaml.safe_load(raw) or {}
+            except Exception as e:
+                status["yaml_load_error"] = f"{e.__class__.__name__}: {e}"
+
+        status["raw_head_200"] = raw[:200]
+        status["parsed_band_dynamic"] = cfg.get("band_dynamic")
+        status["parsed_bands_pct"] = cfg.get("bands_pct")
+        status["resolve_band"] = _resolve_band_from_policy()
+
+        return status
+    except Exception as e:
+        return {"error": f"{e.__class__.__name__}: {e}"}
