@@ -227,3 +227,46 @@ def _auth_guard(x_app_key: Optional[str]):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("service.main:app", host="127.0.0.1", port=8080, reload=True)
+
+@app.get("/plan_band", tags=["planner"])
+def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
+    try:
+        _ensure_ledger_db(force=bool(refresh))
+    except Exception:
+        pass
+
+    overrides: Dict[str, float] = {}
+    for kv in (pair or []):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            try:
+                overrides[k.strip()] = float(v)
+            except Exception:
+                pass
+
+    try:
+        result = compute_actions("trading", override_prices=overrides or None)
+        cfg = result.setdefault("config", {})
+        cfg.setdefault("band", _resolve_band_from_policy())
+        return result
+    except Exception as e:
+        prices = read_json("state/latest_prices.json", default=None)
+        if not prices:
+            targets = _load_targets_from_policy()
+            prices = _fetch_public_prices(_pairs_from_targets(targets))
+        balances = read_json("state/balances.json", default={}) or {}
+        note = f"planner_fallback: {e.__class__.__name__}" + (f" | {e}" if debug else "")
+        return {
+            "account": "trading",
+            "prices": prices or {},
+            "balances": balances,
+            "actions": [],
+            "note": note,
+            "config": {"band": _resolve_band_from_policy()},
+            "safety": {
+                "mode": os.getenv("TRADING_MODE", ""),
+                "exchange": os.getenv("COINBASE_ENV", ""),
+                "fallback": True,
+                "banner": "FAKE / SANDBOX STATE — NOT FROM COINBASE ACCOUNT"
+            }
+        }
