@@ -1,4 +1,4 @@
-# service/main.py — minimal, stable
+# service/main.py — minimal, stable (health + safe /plan + /plan_band)
 import os, time, hashlib, subprocess, uuid, json as _json
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -41,7 +41,6 @@ def _mode_payload() -> Dict[str, Any]:
     }
 
 def _ensure_ledger_db(force: bool = False) -> None:
-    """Best-effort fetch of LEDGER_DB from GCS."""
     gcs_uri = os.getenv("LEDGER_DB_GCS")
     local   = os.getenv("LEDGER_DB")
     if not gcs_uri or not local: return
@@ -53,7 +52,7 @@ def _ensure_ledger_db(force: bool = False) -> None:
         Path(local).parent.mkdir(parents=True, exist_ok=True)
         storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(local)
     except Exception:
-        pass  # do not break requests
+        pass
 
 def _pairs_from_targets(t: Dict[str, float]) -> List[str]:
     return [f"{k}-USD" for k in t.keys()]
@@ -79,7 +78,6 @@ def _load_targets_from_policy() -> Dict[str, float]:
         return {"BTC": 0.5, "ETH": 0.5}
 
 def _resolve_band_from_policy(default_band: float = 0.01) -> float:
-    """band = band_dynamic.base (clamped to min/max) OR bands_pct OR default_band"""
     try:
         base_dir = Path(__file__).resolve().parents[1] / "configs"
         pj = base_dir / "policy.rebalancer.json"
