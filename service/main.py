@@ -85,6 +85,28 @@ def _ensure_ledger_db(force: bool = False) -> None:
     except Exception:
         pass
 
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
 def _pairs_from_targets(t: Dict[str, float]) -> List[str]:
     return [f"{k}-USD" for k in t.keys()]
 
@@ -97,6 +119,28 @@ def _fetch_public_prices(pairs: List[str]) -> Dict[str, float]:
             out[p] = amt
         except Exception:
             pass
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
     return out
 
 def _load_targets_from_policy() -> Dict[str, float]:
@@ -180,6 +224,28 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
     except Exception:
         pass
 
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
     overrides: Dict[str, float] = {}
     for kv in (pair or []):
         if "=" in kv:
@@ -189,6 +255,28 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             except Exception:
                 pass
 
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
     try:
         result = compute_actions("trading", override_prices=overrides or None)
         result = _with_policy_band(result)
@@ -207,6 +295,28 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
                 })
             except Exception:
                 pass
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
         return result2
     except Exception as e:
         # Fallback: try last saved prices in state, otherwise public spot
@@ -232,6 +342,28 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
     except Exception:
         pass
 
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
     overrides: Dict[str, float] = {}
     for kv in (pair or []):
         if "=" in kv:
@@ -241,6 +373,28 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
             except Exception:
                 pass
 
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
     try:
         result = compute_actions("trading", override_prices=overrides or None)
         return _with_policy_band(result)
@@ -278,6 +432,28 @@ def dashboard():
     except Exception:
         pass
 
+    # kill-switch: env KILL=1 or state/kill.flag present
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
+    except Exception:
+        # Even if state read fails, env KILL still halts
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   {"band": _resolve_band_from_policy(), "halted": True}
+            }
     html = f"""
 <!doctype html>
 <html><head><meta charset="utf-8"><title>CryptoOps Dashboard</title>
@@ -326,4 +502,5 @@ def metrics():
         f'cryptoops_env{{mode="{meta.get("trading_mode","")}",exchange="{meta.get("coinbase_env","")}"}} 1',
     ]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
+
 
