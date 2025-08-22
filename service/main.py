@@ -3,15 +3,15 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import PlainTextResponse
 
-# Core planner compute & constraints
+# Core compute & constraints
 from apps.rebalancer.main import compute_actions
 from apps.rebalancer.constraints import evaluate as _eval_constraints
 
 # State helpers (local or GCS via shim)
-from apps.infra.state import read_json, write_json, append_jsonl
+from apps.infra.state import read_json, append_jsonl
 
 app = FastAPI(title="CryptoOps Planner", version="1.0")
 
@@ -19,31 +19,20 @@ app = FastAPI(title="CryptoOps Planner", version="1.0")
 REQUIRED_TRADING_MODE = "paper"
 REQUIRED_EXCHANGE_ENV = "sandbox"
 
-def _assert_safe_env():
+@app.on_event("startup")
+def _safety_on_startup():
     tm = os.getenv("TRADING_MODE", "")
     ex = os.getenv("COINBASE_ENV", "")
     if tm != REQUIRED_TRADING_MODE or ex != REQUIRED_EXCHANGE_ENV:
         raise RuntimeError(f"Unsafe env: TRADING_MODE={tm!r} COINBASE_ENV={ex!r}")
-
-def _refuse_live_creds():
-    # Add real secret names here if/when live creds exist
-    live_markers = [
-        os.getenv("COINBASE_API_KEY_PROD"),
-        os.getenv("COINBASE_API_SECRET_PROD"),
-    ]
-    if any(live_markers):
+    if any(os.getenv(k) for k in ("COINBASE_API_KEY_PROD","COINBASE_API_SECRET_PROD")):
         raise RuntimeError("Live exchange credentials detected. Refusing to start.")
-
-@app.on_event("startup")
-def _safety_on_startup():
-    _refuse_live_creds()
-    _assert_safe_env()
 # ---- END TRIPWIRES ----
 
 # --------------------- helpers ---------------------
 def _git_commit() -> str:
     try:
-        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL)
+        out = subprocess.check_output(["git","rev-parse","--short","HEAD"], stderr=subprocess.DEVNULL)
         return out.decode().strip()
     except Exception:
         return "n/a"
@@ -58,10 +47,10 @@ def _config_hash() -> str:
 
 def _mode_payload() -> Dict[str, Any]:
     return {
-        "trading_mode": os.getenv("TRADING_MODE", "paper"),
-        "coinbase_env": os.getenv("COINBASE_ENV", "sandbox"),
-        "state_bucket": os.getenv("STATE_BUCKET", "(unset)"),
-        "revision": os.getenv("K_REVISION", "n/a"),
+        "trading_mode": os.getenv("TRADING_MODE","paper"),
+        "coinbase_env": os.getenv("COINBASE_ENV","sandbox"),
+        "state_bucket": os.getenv("STATE_BUCKET","(unset)"),
+        "revision": os.getenv("K_REVISION","n/a"),
         "code_commit": _git_commit(),
         "config_hash": _config_hash(),
         "run_id": str(uuid.uuid4()),
@@ -71,19 +60,15 @@ def _mode_payload() -> Dict[str, Any]:
 def _ensure_ledger_db(force: bool = False) -> None:
     gcs_uri = os.getenv("LEDGER_DB_GCS")
     local   = os.getenv("LEDGER_DB")
-    if not gcs_uri or not local:
-        return
-    if (not force) and os.path.exists(local):
-        return
+    if not gcs_uri or not local: return
+    if (not force) and os.path.exists(local): return
     try:
-        if not gcs_uri.startswith("gs://"):
-            return
+        if not gcs_uri.startswith("gs://"): return
         from google.cloud import storage
         bucket_name, blob_name = gcs_uri[5:].split("/", 1)
         Path(local).parent.mkdir(parents=True, exist_ok=True)
         storage.Client().bucket(bucket_name).blob(blob_name).download_to_filename(local)
     except Exception:
-        # planner must tolerate missing DB
         pass
 
 def _pairs_from_targets(t: Dict[str, float]) -> List[str]:
@@ -107,24 +92,26 @@ def _load_targets_from_policy() -> Dict[str, float]:
         t = data.get("targets_trading") or data.get("targets") or {}
         return {k.upper(): float(v) for k, v in t.items()}
     except Exception:
-        # sensible default for sandbox
         return {"BTC": 0.5, "ETH": 0.5}
 
 def _resolve_band_from_policy(default_band: float = 0.01) -> float:
+    """
+    band = band_dynamic.base clamped to [min,max], else bands_pct, else default_band.
+    """
     try:
         base_dir = Path(__file__).resolve().parents[1] / "configs"
         pj = base_dir / "policy.rebalancer.json"
         py = base_dir / "policy.rebalancer.yaml"
-        cfg: Dict[str, Any] = {}
+        cfg = {}
         if pj.exists():
             cfg = _json.loads(pj.read_text(encoding="utf-8"))
         elif py.exists():
             try:
-                import yaml as _yaml  # type: ignore
+                import yaml as _yaml
                 cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
             except Exception:
                 cfg = {}
-        bd = (cfg.get("band_dynamic") or {})
+        bd = cfg.get("band_dynamic") or {}
         base = bd.get("base", cfg.get("bands_pct", default_band))
         mn   = bd.get("min", base)
         mx   = bd.get("max", base)
@@ -172,40 +159,26 @@ def health_all():
 @app.get("/plan", tags=["planner"])
 def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
     """
-    Returns the current plan JSON.
-    - Always publishes policy band.
-    - Halts on constraint hits.
-    - Kill-switch: env KILL=1 or state/kill.flag produces a halted no-trade plan.
+    Returns the current plan JSON. Always publishes policy band; halts on constraint hits.
+    Kill-switch: env KILL=1 or state/kill.flag -> halted, no-trade plan.
     """
+    # Kill switch early-exit (no try/except needed)
+    if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+        return {
+            "account":  "trading",
+            "prices":    read_json("state/latest_prices.json", default={}) or {},
+            "balances":  read_json("state/balances.json",      default={}) or {},
+            "actions":   [],
+            "note":      "KILLED: kill switch engaged",
+            "config":    { "band": _resolve_band_from_policy(), "halted": True },
+        }
+
+    # Planner inputs
     try:
         _ensure_ledger_db(force=bool(refresh))
     except Exception:
         pass
 
-    # kill-switch check (service env or state)
-    try:
-        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
-            return {
-                "account":  "trading",
-                "prices":    read_json("state/latest_prices.json", default={}) or {},
-                "balances":  read_json("state/balances.json",      default={}) or {},
-                "actions":   [],
-                "note":      "KILLED: kill switch engaged",
-                "config":    { "band": _resolve_band_from_policy(), "halted": True },
-            }
-    except Exception:
-        # If state read fails but env is set, still halt
-        if os.getenv("KILL") == "1":
-            return {
-                "account":  "trading",
-                "prices":   {},
-                "balances": {},
-                "actions":  [],
-                "note":     "KILLED: kill switch engaged",
-                "config":   { "band": _resolve_band_from_policy(), "halted": True },
-            }
-
-    # parse optional price overrides (?pair=BTC-USD=...&pair=ETH-USD=...)
     overrides: Dict[str, float] = {}
     for kv in (pair or []):
         if "=" in kv:
@@ -215,11 +188,11 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             except Exception:
                 pass
 
+    # Compute + constraints
     try:
         result = compute_actions("trading", override_prices=overrides or None)
         result = _with_policy_band(result)
 
-        # constraints
         policy_cfg = _load_policy_config()
         result2, hits = _eval_constraints(result, policy_cfg)
         if hits:
@@ -235,15 +208,13 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
                 pass
         return result2
     except Exception as e:
-        # Fallback: try last saved prices in state, otherwise public spot
+        # Fallback: last saved prices in state, otherwise public spot
         prices = read_json("state/latest_prices.json", default=None)
         if not prices:
             targets = _load_targets_from_policy()
             prices  = _fetch_public_prices(_pairs_from_targets(targets))
         balances = read_json("state/balances.json", default={}) or {}
-        note = f"planner_fallback: {e.__class__.__name__}"
-        if debug:
-            note += f" | {e}"
+        note = f"planner_fallback: {e.__class__.__name__}" + (f" | {e}" if debug else "")
         return {
             "account": "trading",
             "prices": prices or {},
@@ -285,62 +256,10 @@ def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None),
             "balances": balances,
             "actions": [],
             "note": note,
-            "config": {"band": _resolve_band_from_policy()},
+            "config": {"band": _resolve_band_from_policy(), "halted": False},
         }
 
-# ---------------- lightweight UI + metrics ----------------
-@app.get("/dashboard", include_in_schema=False, tags=["meta"])
-def dashboard():
-    meta = _mode_payload()
-    band = _resolve_band_from_policy()
-    nav_val = "n/a"; nav_ts = "n/a"
-    try:
-        recs = read_json("snapshots/daily.jsonl", default=None)
-        if isinstance(recs, list) and recs:
-            last = recs[-1]
-            nav_val = last.get("nav", "n/a")
-            ts_i    = last.get("ts", None)
-            if ts_i:
-                from datetime import datetime
-                nav_ts = datetime.utcfromtimestamp(int(ts_i)).strftime("%Y-%m-%d %H:%M:%SZ")
-    except Exception:
-        pass
-
-    html = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>CryptoOps Dashboard</title>
-<style>
- body {{ font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial; margin: 32px; color:#111 }}
- .card {{ padding:16px; border:1px solid #ddd; border-radius:12px; margin-bottom:16px; }}
- .title {{ font-size:22px; font-weight:700; margin-bottom:8px; }}
- .kv {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
- .ok {{ color:#008a00; }} .warn {{ color:#b58900; }} .muted {{ color:#666; }}
- a {{ color:#0366d6; text-decoration:none }}
-</style></head><body>
-<h1>CryptoOps — Read-only Dashboard</h1>
-
-<div class="card">
-  <div class="title">System</div>
-  <div class="kv">Mode: <b>{meta.get("trading_mode","")}</b></div>
-  <div class="kv">Environment: <b>{meta.get("coinbase_env","")}</b></div>
-  <div class="kv">Revision: <span class="muted">{meta.get("revision","n/a")}</span></div>
-  <div class="kv">Config Hash: <span class="muted">{meta.get("config_hash","n/a")}</span></div>
-</div>
-
-<div class="card">
-  <div class="title">Policy</div>
-  <div class="kv">Band: <b>{band:.3f}</b></div>
-</div>
-
-<div class="card">
-  <div class="title">Analytics</div>
-  <div class="kv">Last NAV: <b>{nav_val}</b></div>
-  <div class="kv">As of: <span class="muted">{nav_ts}</span></div>
-</div>
-
-<p class="muted">Read-only UI. For actions, use your PowerShell / scripts.</p>
-</body></html>"""
-    return HTMLResponse(content=html, status_code=200)
-
+# ---------------- metrics ----------------
 @app.get("/metrics", include_in_schema=False, tags=["meta"])
 def metrics():
     band = _resolve_band_from_policy()
