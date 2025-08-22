@@ -8,6 +8,7 @@ from fastapi import FastAPI, Query, Header, HTTPException
 # Core planner interface; the app must tolerate compute failure
 from apps.rebalancer.main import compute_actions
 from apps.rebalancer.constraints import evaluate as _eval_constraints
+
 from apps.infra.state import read_json, write_json, append_jsonl
 
 app = FastAPI(title="CryptoOps Planner", version="1.0")
@@ -541,4 +542,13 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             "config": {"band": _resolve_band_from_policy(), "halted": False},
         }
 
+
+
+def _with_policy_band(result: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = result.setdefault("config", {})
+    try:
+        cfg["band"] = _resolve_band_from_policy()
+    except Exception:
+        cfg.setdefault("band", 0.01)
+    return result
 
