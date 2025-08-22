@@ -18,13 +18,41 @@ def _nav_usd(balances: Dict[str, float], prices: Dict[str, float]) -> float:
     return max(nav, 1e-9)
 
 def _action_notional_usd(a: Dict[str, Any], prices: Dict[str, float]) -> float:
+    # prefer explicit notional
     n = a.get("notional")
     if n is not None:
-        return abs(float(n))
+        try:
+            return abs(float(n))
+        except Exception:
+            return 0.0
+    # else size * px if provided
     pair = a.get("pair") or a.get("symbol")
-    size = float(a.get("size", 0.0))
-    px = float(prices.get(pair, 0.0))
+    try:
+        size = float(a.get("size", 0.0))
+    except Exception:
+        size = 0.0
+    px = 0.0
+    if pair:
+        try:
+            px = float(prices.get(pair, 0.0))
+        except Exception:
+            px = 0.0
     return abs(size * px)
+
+def _estimate_turnover_pct_from_rebalance(actions: List[Dict[str, Any]]) -> float:
+    """
+    Sum of absolute target-current percentages (as a fraction of NAV).
+    Example: BTC 0.06->65.00 (0.6494) + ETH 0.74->30.00 (0.2926) => ~0.942 of NAV turnover.
+    """
+    tot = 0.0
+    for a in actions:
+        try:
+            cur = float(a.get("current_pct", 0.0))
+            tgt = float(a.get("target_pct", 0.0))
+            tot += abs((tgt - cur) / 100.0)
+        except Exception:
+            pass
+    return tot
 
 def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
@@ -41,12 +69,14 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
     params.update((policy.get("constraints") or {}))
 
     nav = _nav_usd(balances, prices)
+
+    # compute turnover in USD if we can, else fall back to pct-based for "rebalance" rows
     turnover = sum(_action_notional_usd(a, prices) for a in actions)
     if turnover <= 0.0 and any(("current_pct" in a and "target_pct" in a) for a in actions):
-        # estimate turnover as sum of pct deltas * NAV
         turnover_pct = _estimate_turnover_pct_from_rebalance(actions)
     else:
         turnover_pct = (turnover / nav) if nav else 1.0
+
     order_count = len(actions)
 
     hits: List[Dict[str, Any]] = []
@@ -59,7 +89,7 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
 
     max_expo = float(params["max_exposure_pct"])
     for sym, qty in balances.items():
-        if sym == "USD": 
+        if sym == "USD":
             continue
         px = float(prices.get(f"{sym}-USD", 0.0))
         expo = (float(qty) * px) / nav if nav else 1.0
@@ -84,5 +114,3 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
         plan["actions"] = cleaned
 
     return plan, []
-
-
