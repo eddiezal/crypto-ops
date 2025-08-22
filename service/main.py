@@ -326,3 +326,4 @@ def metrics():
         f'cryptoops_env{{mode="{meta.get("trading_mode","")}",exchange="{meta.get("coinbase_env","")}"}} 1',
     ]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
+
