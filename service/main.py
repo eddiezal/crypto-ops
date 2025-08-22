@@ -3,10 +3,10 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Query, Header, HTTPException
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
-# Core planner compute & constraints
+# Core compute & constraints
 from apps.rebalancer.main import compute_actions
 from apps.rebalancer.constraints import evaluate as _eval_constraints
 
@@ -60,20 +60,23 @@ def _mode_payload() -> Dict[str, Any]:
         "trading_mode": os.getenv("TRADING_MODE", "paper"),
         "coinbase_env": os.getenv("COINBASE_ENV", "sandbox"),
         "state_bucket": os.getenv("STATE_BUCKET", "(unset)"),
-        "revision":     os.getenv("K_REVISION", "n/a"),
-        "code_commit":  _git_commit(),
-        "config_hash":  _config_hash(),
-        "run_id":       str(uuid.uuid4()),
-        "ts":           int(time.time()),
+        "revision": os.getenv("K_REVISION", "n/a"),
+        "code_commit": _git_commit(),
+        "config_hash": _config_hash(),
+        "run_id": str(uuid.uuid4()),
+        "ts": int(time.time()),
     }
 
 def _ensure_ledger_db(force: bool = False) -> None:
     gcs_uri = os.getenv("LEDGER_DB_GCS")
     local   = os.getenv("LEDGER_DB")
-    if not gcs_uri or not local: return
-    if (not force) and os.path.exists(local): return
+    if not gcs_uri or not local:
+        return
+    if (not force) and os.path.exists(local):
+        return
     try:
-        if not gcs_uri.startswith("gs://"): return
+        if not gcs_uri.startswith("gs://"):
+            return
         from google.cloud import storage
         bucket_name, blob_name = gcs_uri[5:].split("/", 1)
         Path(local).parent.mkdir(parents=True, exist_ok=True)
@@ -114,7 +117,7 @@ def _resolve_band_from_policy(default_band: float = 0.01) -> float:
             cfg = _json.loads(pj.read_text(encoding="utf-8"))
         elif py.exists():
             try:
-                import yaml as _yaml  # type: ignore
+                import yaml as _yaml
                 cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
             except Exception:
                 cfg = {}
@@ -144,13 +147,22 @@ def _load_policy_config() -> Dict[str, Any]:
             cfg = _json.loads(pj.read_text(encoding="utf-8"))
         elif py.exists():
             try:
-                import yaml as _yaml  # type: ignore
+                import yaml as _yaml
                 cfg = _yaml.safe_load(py.read_text(encoding="utf-8")) or {}
             except Exception:
                 cfg = {}
     except Exception:
         cfg = {}
     return cfg
+
+def _new_cycle_id() -> str:
+    return f"cycle-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+
+def _log_event(kind: str, payload: Dict[str, Any]) -> None:
+    try:
+        append_jsonl("logs/cycles.jsonl", {"ts": int(time.time()), "kind": kind, **payload})
+    except Exception:
+        pass
 
 # ---------------- health/meta ----------------
 @app.get("/",            include_in_schema=False, tags=["meta"])
@@ -161,149 +173,33 @@ def _load_policy_config() -> Dict[str, Any]:
 def health_all():
     return {"ok": True, **_mode_payload()}
 
-# ---------------- planner ----------------
-@app.get("/plan", tags=["planner"])
-def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
-    """
-    Returns the current plan JSON. Always publishes policy band; halts on constraint hits.
-    Kill-switch: env KILL=1 or state/kill.flag will produce a halted no-trade plan.
-    """
-    try:
-        _ensure_ledger_db(force=bool(refresh))
-    except Exception:
-        pass
-    # kill switch (service env or state)
-    try:
-        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
-            return {
-                "account":  "trading",
-                "prices":    read_json("state/latest_prices.json", default={}) or {},
-                "balances":  read_json("state/balances.json",      default={}) or {},
-                "actions":   [],
-                "note":      "KILLED: kill switch engaged",
-                "config":    { "band": _resolve_band_from_policy(), "halted": True },
-            }
-        # create a new cycle id and log start
-        _cid = _new_cycle_id()
-        _log_event('CycleStart', {'cycle_id': _cid, 'meta': _mode_payload()})
-    except Exception:
-        if os.getenv("KILL") == "1":
-            return {
-                "account":  "trading",
-                "prices":   {},
-                "balances": {},
-                "actions":  [],
-                "note":     "KILLED: kill switch engaged",
-                "config":   { "band": _resolve_band_from_policy(), "halted": True },
-            }
-
-    overrides: Dict[str, float] = {}
-    for kv in (pair or []):
-        if "=" in kv:
-            k, v = kv.split("=", 1)
-            try:
-                overrides[k.strip()] = float(v)
-            except Exception:
-                pass
-
-    try:
-        result = compute_actions("trading", override_prices=overrides or None)
-        result = _with_policy_band(result)
-
-        # constraints
-        policy_cfg = _load_policy_config()
-        result2, hits = _eval_constraints(result, policy_cfg)
-        if hits:
-            try:
-                append_jsonl("logs/constraints.jsonl", {
-                    "ts": int(time.time()),
-                    "account": "trading",
-                    "hits": hits,
-                    "band": result2.get("config", {}).get("band"),
-                    "meta": _mode_payload(),
-                })
-            except Exception:
-                pass
-        return result2
-    except Exception as e:
-        prices = read_json("state/latest_prices.json", default=None)
-        if not prices:
-            targets = _load_targets_from_policy()
-            prices  = _fetch_public_prices(_pairs_from_targets(targets))
-        balances = read_json("state/balances.json", default={}) or {}
-        note = f"planner_fallback: {e.__class__.__name__}"
-        if debug:
-            note += f" | {e}"
-        return {
-            "account": "trading",
-            "prices": prices or {},
-            "balances": balances,
-            "actions": [],
-            "note": note,
-            "config": {"band": _resolve_band_from_policy(), "halted": False},
-        }
-
-@app.get("/plan_band", tags=["planner"])
-def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
-    try:
-        _ensure_ledger_db(force=bool(refresh))
-    except Exception:
-        pass
-
-    overrides: Dict[str, float] = {}
-    for kv in (pair or []):
-        if "=" in kv:
-            k, v = kv.split("=", 1)
-            try:
-                overrides[k.strip()] = float(v)
-            except Exception:
-                pass
-
-    try:
-        result = compute_actions("trading", override_prices=overrides or None)
-        return _with_policy_band(result)
-    except Exception as e:
-        prices = read_json("state/latest_prices.json", default=None)
-        if not prices:
-            targets = _load_targets_from_policy()
-            prices  = _fetch_public_prices(_pairs_from_targets(targets))
-        balances = read_json("state/balances.json", default={}) or {}
-        note = f"planner_fallback: {e.__class__.__name__}" + (f" | {e}" if debug else "")
-        return {
-            "account": "trading",
-            "prices": prices or {},
-            "balances": balances,
-            "actions": [],
-            "note": note,
-            "config": {"band": _resolve_band_from_policy()},
-        }
-
-# ---------------- minimal UI / metrics ----------------
 @app.get("/dashboard", include_in_schema=False, tags=["meta"])
 def dashboard():
     meta = _mode_payload()
     band = _resolve_band_from_policy()
-    nav_val, nav_ts = "n/a", "n/a"
+    # optional NAV sample from state
+    nav_val = "n/a"; nav_ts = "n/a"
     try:
         recs = read_json("snapshots/daily.jsonl", default=None)
         if isinstance(recs, list) and recs:
             last = recs[-1]
             nav_val = last.get("nav", "n/a")
-            ts_i    = last.get("ts", None)
+            ts_i = last.get("ts", None)
             if ts_i:
                 from datetime import datetime
                 nav_ts = datetime.utcfromtimestamp(int(ts_i)).strftime("%Y-%m-%d %H:%M:%SZ")
     except Exception:
         pass
 
-    html = f"""<!doctype html>
+    html = f"""
+<!doctype html>
 <html><head><meta charset="utf-8"><title>CryptoOps Dashboard</title>
 <style>
  body {{ font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial; margin: 32px; color:#111 }}
  .card {{ padding:16px; border:1px solid #ddd; border-radius:12px; margin-bottom:16px; }}
  .title {{ font-size:22px; font-weight:700; margin-bottom:8px; }}
  .kv {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
- .ok {{ color:#008a00; }} .warn {{ color:#b58900; }} .muted {{ color:#666; }}
+ .muted {{ color:#666; }}
  a {{ color:#0366d6; text-decoration:none }}
 </style></head><body>
 <h1>CryptoOps — Read-only Dashboard</h1>
@@ -324,7 +220,8 @@ def dashboard():
   <div class="kv">As of: <span class="muted">{nav_ts}</span></div>
 </div>
 <p class="muted">Read-only UI. For actions, use your PowerShell / scripts.</p>
-</body></html>"""
+</body></html>
+"""
     return HTMLResponse(content=html, status_code=200)
 
 @app.get("/metrics", include_in_schema=False, tags=["meta"])
@@ -334,41 +231,42 @@ def metrics():
     lines = [
         "cryptoops_up 1",
         f"cryptoops_band {band}",
-        f"cryptoops_revision{{rev=\"{meta.get('revision','n/a')}\"}} 1",
-        f"cryptoops_env{{mode=\"{meta.get('trading_mode','')}\",exchange=\"{meta.get('coinbase_env','')}\"}} 1",
+        f'cryptoops_revision{{rev="{meta.get("revision","n/a")}"}} 1',
+        f'cryptoops_env{{mode="{meta.get("trading_mode","")}",exchange="{meta.get("coinbase_env","")}"}} 1',
     ]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
 
+# ---------------- planner ----------------
 @app.get("/plan", tags=["planner"])
 def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
     """
-    Returns the current plan JSON. Always publishes policy band; halts on constraint hits or kill-switch.
+    Returns the current plan JSON. Always publishes policy band; halts on constraint hits.
+    Kill-switch: env KILL=1 or state/kill.flag will produce a halted no-trade plan.
     """
-    # ensure state (best-effort)
     try:
         _ensure_ledger_db(force=bool(refresh))
     except Exception:
         pass
 
-    # KILL guard: Cloud Run env KILL=1 or a state/kill.flag present => immediate halt
+    # kill-switch (service env or state)
     try:
         if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
             return {
-                "account": "trading",
-                "prices":   read_json("state/latest_prices.json", default={}) or {},
-                "balances": read_json("state/balances.json",      default={}) or {},
-                "actions":  [],
-                "note":     "KILLED: kill switch engaged",
-                "config":   { "band": _resolve_band_from_policy(), "halted": True },
+                "account":  "trading",
+                "prices":    read_json("state/latest_prices.json", default={}) or {},
+                "balances":  read_json("state/balances.json",      default={}) or {},
+                "actions":   [],
+                "note":      "KILLED: kill switch engaged",
+                "config":    { "band": _resolve_band_from_policy(), "halted": True },
             }
-        # create a new cycle id and log start
-    _cid = _new_cycle_id()
-    _log_event('CycleStart', {'cycle_id': _cid, 'meta': _mode_payload()})
-except Exception:
-        # if state read failed but env KILL is set, still halt safely
+        # log cycle start (optional telemetry)
+        _cid = _new_cycle_id()
+        _log_event("CycleStart", {"cycle_id": _cid, "meta": _mode_payload()})
+    except Exception:
+        # If we can't read state but env says kill, still halt
         if os.getenv("KILL") == "1":
             return {
-                "account": "trading",
+                "account":  "trading",
                 "prices":   {},
                 "balances": {},
                 "actions":  [],
@@ -376,7 +274,7 @@ except Exception:
                 "config":   { "band": _resolve_band_from_policy(), "halted": True },
             }
 
-    # optional price overrides ?pair=BTC-USD=125000&pair=ETH-USD=4300
+    # optional price overrides (?pair=BTC-USD=1&pair=ETH-USD=1)
     overrides: Dict[str, float] = {}
     for kv in (pair or []):
         if "=" in kv:
@@ -387,21 +285,13 @@ except Exception:
                 pass
 
     try:
-        # compute plan
+        # compute
         result = compute_actions("trading", override_prices=overrides or None)
+        result = _with_policy_band(result)
 
-        # ensure policy band is published
-        cfg = result.setdefault("config", {})
-        try:
-            cfg["band"] = _resolve_band_from_policy()
-        except Exception:
-            cfg.setdefault("band", 0.01)
-
-        # evaluate constraints
-        policy_cfg = _load_policy_config() if " _load_policy_config" in globals() else {}
+        # constraints
+        policy_cfg = _load_policy_config()
         result2, hits = _eval_constraints(result, policy_cfg)
-
-        # persist hits (best-effort)
         if hits:
             try:
                 append_jsonl("logs/constraints.jsonl", {
@@ -413,19 +303,15 @@ except Exception:
                 })
             except Exception:
                 pass
-
         return result2
-
     except Exception as e:
-        # Fallback: try last saved prices in state, otherwise public spot
+        # fallback: try last saved prices, else public spot
         prices = read_json("state/latest_prices.json", default=None)
         if not prices:
             targets = _load_targets_from_policy()
             prices  = _fetch_public_prices(_pairs_from_targets(targets))
         balances = read_json("state/balances.json", default={}) or {}
-        note = f"planner_fallback: {e.__class__.__name__}"
-        if debug:
-            note += f" | {e}"
+        note = f"planner_fallback: {e.__class__.__name__}" + (f" | {e}" if debug else "")
         return {
             "account": "trading",
             "prices": prices or {},
@@ -435,23 +321,7 @@ except Exception:
             "config": {"band": _resolve_band_from_policy(), "halted": False},
         }
 
-# ------------- cycle logging helpers -------------
-def _new_cycle_id() -> str:
-    try:
-        return uuid.uuid4().hex[:12]
-    except Exception:
-        return str(int(time.time()))
-
-def _log_event(event: str, payload: Dict[str, Any]) -> None:
-    try:
-        rec = {
-            "ts": int(time.time()),
-            "event": event,
-            **payload
-        }
-        append_jsonl("logs/cycles.jsonl", rec)
-    except Exception:
-        pass
-# ----------- end cycle logging helpers -----------
-
-
+# Simple alias so AC5 checks can hit either route
+@app.get("/plan_band", tags=["planner"])
+def plan_band(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
+    return plan(refresh=refresh, pair=pair, debug=debug)
