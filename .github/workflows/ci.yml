@@ -9,10 +9,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt pytest
-      - name: Smoke tests (requires RUN_URL + RUN_TOKEN + APP_KEY as secrets)
+      - run: pip install -r requirements.txt pytest requests
+      - name: Smoke + Constraints (Cloud Run)
         env:
           RUN_URL: ${{ secrets.RUN_URL }}
           RUN_TOKEN: ${{ secrets.RUN_TOKEN }}
-          APP_KEY: ${{ secrets.APP_KEY }}
-        run: pytest -q
+        run: |
+          python - <<'PY'
+          import os, sys, requests
+          for v in ("RUN_URL","RUN_TOKEN"):
+              if not os.getenv(v): 
+                  print(f"Missing {v} secret", file=sys.stderr); sys.exit(1)
+          PY
+          pytest -q
