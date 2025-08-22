@@ -184,7 +184,10 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
                 "note":      "KILLED: kill switch engaged",
                 "config":    { "band": _resolve_band_from_policy(), "halted": True },
             }
-    except Exception:
+        # create a new cycle id and log start
+    _cid = _new_cycle_id()
+    _log_event('CycleStart', {'cycle_id': _cid, 'meta': _mode_payload()})
+except Exception:
         if os.getenv("KILL") == "1":
             return {
                 "account":  "trading",
@@ -359,7 +362,10 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
                 "note":     "KILLED: kill switch engaged",
                 "config":   { "band": _resolve_band_from_policy(), "halted": True },
             }
-    except Exception:
+        # create a new cycle id and log start
+    _cid = _new_cycle_id()
+    _log_event('CycleStart', {'cycle_id': _cid, 'meta': _mode_payload()})
+except Exception:
         # if state read failed but env KILL is set, still halt safely
         if os.getenv("KILL") == "1":
             return {
@@ -429,4 +435,23 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
             "note": note,
             "config": {"band": _resolve_band_from_policy(), "halted": False},
         }
+
+# ------------- cycle logging helpers -------------
+def _new_cycle_id() -> str:
+    try:
+        return uuid.uuid4().hex[:12]
+    except Exception:
+        return str(int(time.time()))
+
+def _log_event(event: str, payload: Dict[str, Any]) -> None:
+    try:
+        rec = {
+            "ts": int(time.time()),
+            "event": event,
+            **payload
+        }
+        append_jsonl("logs/cycles.jsonl", rec)
+    except Exception:
+        pass
+# ----------- end cycle logging helpers -----------
 
