@@ -3,7 +3,7 @@ import os, json
 from pathlib import Path
 from typing import Any, Dict, Optional, Iterable
 
-# Default: LOCAL filesystem under repo root (two levels up from this file)
+# Local default root (repo root): service/main.py -> parents[1] == service, parents[2] == repo
 _ROOT = Path(__file__).resolve().parents[2]
 
 def _p(rel: str) -> Path:
@@ -47,12 +47,11 @@ def append_jsonl(rel: str, obj: Dict[str, Any]) -> None:
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(obj, separators=(",", ":")) + "\n")
 
-# Optional GCS override if STATE_BUCKET is set
+# Optional GCS override only when STATE_BUCKET is set
 _BUCKET = os.getenv("STATE_BUCKET")
 if _BUCKET:
     try:
         from . import state_gcs as _g
-        # Prefer GCS implementations when bucket is defined
         read_text    = _g.read_text
         write_text   = _g.write_text
         read_json    = _g.read_json
@@ -60,5 +59,5 @@ if _BUCKET:
         read_ndjson  = _g.read_ndjson
         append_jsonl = _g.append_jsonl
     except Exception:
-        # If GCS layer fails to import or operate, keep local fallback
+        # keep local fallback if GCS layer fails to import
         pass
