@@ -1,63 +1,80 @@
 ﻿from __future__ import annotations
-import os, json
+
+import os
+import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Iterable
+from typing import Any, Dict
 
-# Local default root (repo root): service/main.py -> parents[1] == service, parents[2] == repo
-_ROOT = Path(__file__).resolve().parents[2]
+"""
+Universal state shim.
 
-def _p(rel: str) -> Path:
-    p = (_ROOT / rel)
+- Local filesystem (default): no envs needed.
+- Google Cloud Storage: enabled ONLY if STATE_BUCKET env var is non-empty.
+  Requires apps/infra/state_gcs.py in the image and Cloud Run SA IAM.
+"""
+
+def _use_gcs() -> bool:
+    return bool(os.getenv("STATE_BUCKET", "").strip())
+
+# ---------- Local FS implementations ----------
+def _fs_path(p: str) -> Path:
+    path = Path(p)
+    if not path.is_absolute():
+        path = Path.cwd() / p
+    return path
+
+def _fs_read_text(path: str) -> str:
+    p = _fs_path(path)
+    return p.read_text(encoding="utf-8")
+
+def _fs_write_text(path: str, data: str) -> None:
+    p = _fs_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    p.write_text(data, encoding="utf-8")
 
-def read_text(rel: str, default: Optional[str] = None) -> Optional[str]:
+def _fs_read_json(path: str, default: Any = None) -> Any:
     try:
-        return _p(rel).read_text(encoding="utf-8")
+        t = _fs_read_text(path)
+        return json.loads(t) if t and t.strip() else (default if default is not None else None)
     except Exception:
         return default
 
-def write_text(rel: str, data: str) -> None:
-    _p(rel).write_text(data, encoding="utf-8")
+def _fs_write_json(path: str, obj: Any) -> None:
+    _fs_write_text(path, json.dumps(obj, ensure_ascii=False))
 
-def read_json(rel: str, default: Optional[Any] = None) -> Any:
-    try:
-        t = read_text(rel, None)
-        if t is None: return default
-        return json.loads(t)
-    except Exception:
-        return default
-
-def write_json(rel: str, obj: Any) -> None:
-    write_text(rel, json.dumps(obj, ensure_ascii=False, indent=2))
-
-def read_ndjson(rel: str) -> Iterable[Dict[str, Any]]:
-    t = read_text(rel, None)
-    if t is None: return []
-    for line in t.splitlines():
-        line = line.strip()
-        if not line: continue
-        try:
-            yield json.loads(line)
-        except Exception:
-            continue
-
-def append_jsonl(rel: str, obj: Dict[str, Any]) -> None:
-    p = _p(rel)
+def _fs_append_jsonl(path: str, obj: Dict[str, Any]) -> None:
+    p = _fs_path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(obj, separators=(",", ":")) + "\n")
+        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
-# Optional GCS override only when STATE_BUCKET is set
-_BUCKET = os.getenv("STATE_BUCKET")
-if _BUCKET:
-    try:
-        from . import state_gcs as _g
-        read_text    = _g.read_text
-        write_text   = _g.write_text
-        read_json    = _g.read_json
-        write_json   = _g.write_json
-        read_ndjson  = _g.read_ndjson
-        append_jsonl = _g.append_jsonl
-    except Exception:
-        # keep local fallback if GCS layer fails to import
-        pass
+# ---------- Public API ----------
+def read_text(path: str) -> str:
+    if _use_gcs():
+        from . import state_gcs as gcs
+        return gcs.read_text(path)
+    return _fs_read_text(path)
+
+def write_text(path: str, data: str) -> None:
+    if _use_gcs():
+        from . import state_gcs as gcs
+        gcs.write_text(path, data); return
+    _fs_write_text(path, data)
+
+def read_json(path: str, default: Any = None) -> Any:
+    if _use_gcs():
+        from . import state_gcs as gcs
+        return gcs.read_json(path, default=default)
+    return _fs_read_json(path, default=default)
+
+def write_json(path: str, obj: Any) -> None:
+    if _use_gcs():
+        from . import state_gcs as gcs
+        gcs.write_json(path, obj); return
+    _fs_write_json(path, obj)
+
+def append_jsonl(path: str, obj: Dict[str, Any]) -> None:
+    if _use_gcs():
+        from . import state_gcs as gcs
+        gcs.append_jsonl(path, obj); return
+    _fs_append_jsonl(path, obj)
