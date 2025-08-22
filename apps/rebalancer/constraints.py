@@ -5,7 +5,7 @@ DEFAULTS = {
     "max_turnover_pct": 0.15,    # total traded notional / NAV per cycle
     "max_orders_per_cycle": 10,  # safety limit
     "max_exposure_pct": 0.85,    # any single-asset exposure cap (pre-trade)
-    "min_usd_order": 25.0,       # strip dust
+    "min_usd_order": 25.0,       # strip dust/fees below this
 }
 
 def _nav_usd(balances: Dict[str, float], prices: Dict[str, float]) -> float:
@@ -18,15 +18,13 @@ def _nav_usd(balances: Dict[str, float], prices: Dict[str, float]) -> float:
     return max(nav, 1e-9)
 
 def _action_notional_usd(a: Dict[str, Any], prices: Dict[str, float]) -> float:
-    # prefer explicit notional
+    # explicit notional wins
     n = a.get("notional")
     if n is not None:
-        try:
-            return abs(float(n))
-        except Exception:
-            return 0.0
-    # else size * px if provided
+        return abs(float(n))
+    # else size * px using pair or symbol
     pair = a.get("pair") or a.get("symbol")
+    size = 0.0
     try:
         size = float(a.get("size", 0.0))
     except Exception:
@@ -41,8 +39,8 @@ def _action_notional_usd(a: Dict[str, Any], prices: Dict[str, float]) -> float:
 
 def _estimate_turnover_pct_from_rebalance(actions: List[Dict[str, Any]]) -> float:
     """
-    Sum of absolute target-current percentages (as a fraction of NAV).
-    Example: BTC 0.06->65.00 (0.6494) + ETH 0.74->30.00 (0.2926) => ~0.942 of NAV turnover.
+    Sum absolute target-current percentage deltas (as fraction of NAV).
+    e.g. BTC 0.06->65.00 (0.6494) + ETH 0.74->30.00 (0.2926) ≈ 0.942 of NAV.
     """
     tot = 0.0
     for a in actions:
@@ -70,7 +68,7 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
 
     nav = _nav_usd(balances, prices)
 
-    # compute turnover in USD if we can, else fall back to pct-based for "rebalance" rows
+    # turnover: prefer USD notional; if zero and we have % rows, estimate
     turnover = sum(_action_notional_usd(a, prices) for a in actions)
     if turnover <= 0.0 and any(("current_pct" in a and "target_pct" in a) for a in actions):
         turnover_pct = _estimate_turnover_pct_from_rebalance(actions)
@@ -78,7 +76,6 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
         turnover_pct = (turnover / nav) if nav else 1.0
 
     order_count = len(actions)
-
     hits: List[Dict[str, Any]] = []
 
     if turnover_pct > float(params["max_turnover_pct"]):
@@ -94,13 +91,12 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
         px = float(prices.get(f"{sym}-USD", 0.0))
         expo = (float(qty) * px) / nav if nav else 1.0
         if expo > max_expo:
-            hits.append({"type":"MaxExposure", "asset": sym, "value": round(expo, 6), "limit": max_expo})
+            hits.append({"type": "MaxExposure", "asset": sym, "value": round(expo, 6), "limit": max_expo})
 
-    # Strip dust orders below min_usd_order (doesn't count as a "hit")
+    # Strip dust orders below min_usd_order (not a "hit")
     min_usd = float(params["min_usd_order"])
     cleaned = [a for a in actions if _action_notional_usd(a, prices) >= min_usd]
 
-    # If any hits, halt
     if hits:
         new_plan = dict(plan)
         new_plan["actions"] = []
