@@ -72,3 +72,20 @@ Kill switch (any of the two):
   `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`  
 - If `gcloud` is not found, open **Google Cloud SDK Shell** once or ensure `gcloud.cmd` is on `PATH`.
 
+
+### 6) Environment repair
+**`tools/env_set.ps1`** — removes/readds TRADING_MODE, COINBASE_ENV, STATE_BUCKET one-by-one; waits Ready.
+**Keywords**: env, concat, repair, STATE_BUCKET
+
+### 7) Grant bucket access
+**`tools/grant_bucket_access.ps1`** — grants storage.objectViewer to the service account on your state bucket.
+**Keywords**: IAM, bucket, viewer
+
+### 8) Canary smoke guard
+**`tools/smoke_guard.ps1`** — blocks promote if /plan fails or bands mismatch.
+**Keywords**: smoke, gate, bands
+
+### 9) Diagnostics by revision
+**`tools/diag_rev.ps1`** — prints conditions + last logs + hints.
+**Keywords**: diag, logs, Ready, ModuleNotFoundError, STATE_BUCKET
+
