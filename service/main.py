@@ -336,3 +336,97 @@ def metrics():
         f"cryptoops_env{{mode=\"{meta.get('trading_mode','')}\",exchange=\"{meta.get('coinbase_env','')}\"}} 1",
     ]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
+
+@app.get("/plan", tags=["planner"])
+def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debug: int = 0):
+    """
+    Returns the current plan JSON. Always publishes policy band; halts on constraint hits or kill-switch.
+    """
+    # ensure state (best-effort)
+    try:
+        _ensure_ledger_db(force=bool(refresh))
+    except Exception:
+        pass
+
+    # KILL guard: Cloud Run env KILL=1 or a state/kill.flag present => immediate halt
+    try:
+        if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
+            return {
+                "account": "trading",
+                "prices":   read_json("state/latest_prices.json", default={}) or {},
+                "balances": read_json("state/balances.json",      default={}) or {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   { "band": _resolve_band_from_policy(), "halted": True },
+            }
+    except Exception:
+        # if state read failed but env KILL is set, still halt safely
+        if os.getenv("KILL") == "1":
+            return {
+                "account": "trading",
+                "prices":   {},
+                "balances": {},
+                "actions":  [],
+                "note":     "KILLED: kill switch engaged",
+                "config":   { "band": _resolve_band_from_policy(), "halted": True },
+            }
+
+    # optional price overrides ?pair=BTC-USD=125000&pair=ETH-USD=4300
+    overrides: Dict[str, float] = {}
+    for kv in (pair or []):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            try:
+                overrides[k.strip()] = float(v)
+            except Exception:
+                pass
+
+    try:
+        # compute plan
+        result = compute_actions("trading", override_prices=overrides or None)
+
+        # ensure policy band is published
+        cfg = result.setdefault("config", {})
+        try:
+            cfg["band"] = _resolve_band_from_policy()
+        except Exception:
+            cfg.setdefault("band", 0.01)
+
+        # evaluate constraints
+        policy_cfg = _load_policy_config() if " _load_policy_config" in globals() else {}
+        result2, hits = _eval_constraints(result, policy_cfg)
+
+        # persist hits (best-effort)
+        if hits:
+            try:
+                append_jsonl("logs/constraints.jsonl", {
+                    "ts": int(time.time()),
+                    "account": "trading",
+                    "hits": hits,
+                    "band": result2.get("config", {}).get("band"),
+                    "meta": _mode_payload(),
+                })
+            except Exception:
+                pass
+
+        return result2
+
+    except Exception as e:
+        # Fallback: try last saved prices in state, otherwise public spot
+        prices = read_json("state/latest_prices.json", default=None)
+        if not prices:
+            targets = _load_targets_from_policy()
+            prices  = _fetch_public_prices(_pairs_from_targets(targets))
+        balances = read_json("state/balances.json", default={}) or {}
+        note = f"planner_fallback: {e.__class__.__name__}"
+        if debug:
+            note += f" | {e}"
+        return {
+            "account": "trading",
+            "prices": prices or {},
+            "balances": balances,
+            "actions": [],
+            "note": note,
+            "config": {"band": _resolve_band_from_policy(), "halted": False},
+        }
+
