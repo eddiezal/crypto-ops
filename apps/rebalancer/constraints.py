@@ -41,7 +41,7 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
     params.update((policy.get("constraints") or {}))
 
     nav = _nav_usd(balances, prices)
-        turnover = sum(_action_notional_usd(a, prices) for a in actions)
+    turnover = sum(_action_notional_usd(a, prices) for a in actions)
     if turnover <= 0.0 and any(("current_pct" in a and "target_pct" in a) for a in actions):
         # estimate turnover as sum of pct deltas * NAV
         turnover_pct = _estimate_turnover_pct_from_rebalance(actions)
@@ -84,4 +84,5 @@ def evaluate(plan: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[Dict[str, An
         plan["actions"] = cleaned
 
     return plan, []
+
 
