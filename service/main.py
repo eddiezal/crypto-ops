@@ -172,7 +172,6 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
         _ensure_ledger_db(force=bool(refresh))
     except Exception:
         pass
-
     # kill switch (service env or state)
     try:
         if os.getenv("KILL") == "1" or bool(read_json("state/kill.flag", default=None)):
@@ -185,9 +184,9 @@ def plan(refresh: int = 0, pair: Optional[List[str]] = Query(default=None), debu
                 "config":    { "band": _resolve_band_from_policy(), "halted": True },
             }
         # create a new cycle id and log start
-    _cid = _new_cycle_id()
-    _log_event('CycleStart', {'cycle_id': _cid, 'meta': _mode_payload()})
-except Exception:
+        _cid = _new_cycle_id()
+        _log_event('CycleStart', {'cycle_id': _cid, 'meta': _mode_payload()})
+    except Exception:
         if os.getenv("KILL") == "1":
             return {
                 "account":  "trading",
@@ -454,4 +453,5 @@ def _log_event(event: str, payload: Dict[str, Any]) -> None:
     except Exception:
         pass
 # ----------- end cycle logging helpers -----------
+
 
