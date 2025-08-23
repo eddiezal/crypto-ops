@@ -1,0 +1,32 @@
+name: State-Sanity
+on:
+  push: { branches: [ main ] }
+  pull_request: { branches: [ main ] }
+jobs:
+  state:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT }}
+          install_components: "gcloud-beta"
+      - name: Auth
+        run: |
+          gcloud auth activate-service-account --key-file <(echo "${{ secrets.GCP_SA_KEY }}")
+          gcloud config set project "${{ secrets.GCP_PROJECT }}"
+      - name: State sanity
+        env:
+          BUCKET: ${{ secrets.STATE_BUCKET }}
+        run: |
+          set -e
+          bj="$(gcloud storage cat "gs://$BUCKET/state/balances.json")"
+          python - <<PY
+import json,sys
+bj=json.loads("""$bj""")
+req=["USD","BTC","ETH"]
+if any(k not in bj for k in req): sys.exit("missing keys")
+if bj["USD"]==bj["BTC"]==bj["ETH"]==0: sys.exit("all zeros")
+print("OK")
+PY
