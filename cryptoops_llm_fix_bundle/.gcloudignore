@@ -1,0 +1,13 @@
+.gcloudignore
+.git/
+**/__pycache__/
+**/*.pyc
+.venv/
+.env
+# keep the code & configs
+!apps/**
+!service/**
+!configs/**
+!Procfile
+!requirements.txt
+!pyproject.toml

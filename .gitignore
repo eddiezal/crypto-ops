@@ -1,18 +1,66 @@
-__pycache__/
-*.pyc
+# Environment
 .env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+*.cover
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data
+data/
 logs/
 locks/
-data/
-state/balances_backup_*.json
-*.log
-.venv/
-venv/
+state/*
+!state/.gitkeep
+backups/
 *.db
 *.sqlite
-.DS_Store
-Thumbs.db
+*.h5
+*.parquet
+
+# Security
 secrets/
 credentials/
 *.key
 *.pem
+*.crt
+*.pfx
+service-account*.json
+*_key.json
+
+# Trading specific
+orders/
+fills/
+ledger/
+positions/
+*.bak
+recovery/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
