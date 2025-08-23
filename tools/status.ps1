@@ -36,7 +36,7 @@ try {
   $p = Invoke-RestMethod "$URL/plan" -Headers $HDR -TimeoutSec 20
   _ok "Plan OK (band=$($p.config.band))"
 } catch {
-  _warn "Plan FAILED, last $LogTail lines from $servingRev:"
+  _warn "Plan FAILED, last $LogTail lines from ${servingRev}:"  # FIXED: ${servingRev} instead of $servingRev
   gcloud logging read `
     "resource.type=cloud_run_revision AND resource.labels.service_name=$Service AND resource.labels.revision_name=$servingRev" `
     --project $Project --limit $LogTail --format "value(textPayload)"

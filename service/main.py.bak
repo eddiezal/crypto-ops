@@ -332,15 +332,3 @@ def metrics():
         f'cryptoops_env{{mode="{meta.get("trading_mode","")}",exchange="{meta.get("coinbase_env","")}"}} 1',
     ]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain")
-from decimal import Decimal
-try:
-    from apps.recon.coinbase_recon import reconcile_once
-except Exception as _e:
-    reconcile_once = None
-
-@app.get("/recon")
-def recon(abs_usd: float = 25.0, pct: float = 0.5):
-    if not reconcile_once:
-        return {"ok": False, "error": "recon module not available"}
-    rec = reconcile_once(Decimal(str(abs_usd)), Decimal(str(pct)))
-    return rec

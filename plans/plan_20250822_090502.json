@@ -1,0 +1,22 @@
+{
+  "account": "trading",
+  "prices": {
+    "BTC-USD": 113645.055,
+    "ETH-USD": 4288.045
+  },
+  "balances": {
+    "USD": 2683.022850014763,
+    "BTC": 1.703531964692791,
+    "ETH": 19.972825658393063
+  },
+  "actions": [],
+  "config": {
+    "band": 0.05
+  },
+  "total_value": 281925.38,
+  "allocations": {
+    "BTC": 68.67,
+    "ETH": 30.38,
+    "USD": 0.95
+  }
+}
